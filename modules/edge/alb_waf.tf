@@ -141,6 +141,27 @@ resource "aws_wafv2_web_acl" "shop" {
   }
 
   rule {
+    name     = "BlockedIPs"
+    priority = 1
+
+    action {
+      block {}
+    }
+
+    statement {
+      ip_set_reference_statement {
+        arn = aws_wafv2_ip_set.blocked.arn
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${var.project}-shop-blocked-ips"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  rule {
     name     = "AWSCommonRules"
     priority = 10
 
@@ -222,6 +243,27 @@ resource "aws_wafv2_web_acl" "admin" {
   }
 
   rule {
+    name     = "BlockedIPs"
+    priority = 1
+
+    action {
+      block {}
+    }
+
+    statement {
+      ip_set_reference_statement {
+        arn = aws_wafv2_ip_set.blocked.arn
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${var.project}-admin-blocked-ips"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  rule {
     name     = "AWSCommonRules"
     priority = 10
 
@@ -291,4 +333,16 @@ resource "aws_wafv2_web_acl_logging_configuration" "shop" {
 resource "aws_wafv2_web_acl_logging_configuration" "admin" {
   resource_arn            = aws_wafv2_web_acl.admin.arn
   log_destination_configs = [var.admin_waf_log_group_arn]
+}
+
+# Lambda Remediation 이 채우는 공격 IP 차단 목록. 주소 목록은 Lambda 가 관리하므로 Terraform 은 건드리지 않는다.
+resource "aws_wafv2_ip_set" "blocked" {
+  name               = "${var.project}-blocked-ips"
+  scope              = "REGIONAL"
+  ip_address_version = "IPV4"
+  addresses          = []
+
+  lifecycle {
+    ignore_changes = [addresses]
+  }
 }

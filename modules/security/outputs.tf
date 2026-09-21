@@ -42,3 +42,11 @@ output "securityhub_rule_name" {
 output "securityhub_rule_arn" {
   value = try(aws_cloudwatch_event_rule.securityhub_findings[0].arn, null)
 }
+
+output "shop_waf_log_group_name" {
+  value = aws_cloudwatch_log_group.shop_waf.name
+}
+
+output "admin_waf_log_group_name" {
+  value = aws_cloudwatch_log_group.admin_waf.name
+}

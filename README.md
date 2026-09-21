@@ -100,12 +100,13 @@ Internet
 | `modules/security` | KMS / Secrets Manager / S3 로그 / CloudTrail / Flow Logs / GuardDuty / Inspector / Security Hub / WAF 로그 그룹 |
 | `modules/compute` | EC2 5대 / IAM / ECR / GitHub OIDC (`user_data/` 포함) |
 | `modules/edge` | ALB / WAF / ACM / Route53 |
-| `modules/lambda_a` | Security Hub finding → Security MySQL (`src/` 에 코드) |
+| `modules/lambda_a` / `lambda_b` / `lambda_remediation` | Security Hub→DB / WAF 로그 분석→DB / 승인된 조치 실행 |
+| `modules/lambda_common` | 세 Lambda 가 함께 쓰는 DB·매핑 코드와 테스트 |
 | `docs/` | 실행방법·반영현황 등 문서 |
 
 `moved.tf` 는 단일 구성에서 모듈로 옮길 때 리소스 주소만 이동시키는 블록입니다. 모든 환경에서 apply 를 마친 뒤에는 삭제해도 됩니다.
 
-Lambda A 는 배포 전에 `bash modules/lambda_a/src/build.sh` 로 패키지를 만들어야 plan 이 통과합니다.
+Lambda 3개(`lambda_a`, `lambda_b`, `lambda_remediation`)는 plan 전에 각 `src/build.sh` 로 패키지를 만들어야 합니다. 공통 DB 코드는 `modules/lambda_common` 에 있습니다.
 
 ## Dashboard 범위
 
@@ -129,9 +130,7 @@ Dashboard Flask 코드, 화면, 그래프, API, DB 조회 로직은 별도로 �
 - Flask 쇼핑몰 애플리케이션 코드
 - Dashboard 애플리케이션 코드
 - MySQL 설치 / 초기 스키마
-- Lambda A 코드 배포 검증 (코드/Terraform 은 `modules/lambda_a` 에 작성됨)
-- Lambda B 코드
-- Lambda Remediation 코드
+- Lambda 배포 후 실제 동작 검증 (코드/Terraform 은 `modules/lambda_*` 에 작성됨)
 - SSM 자동조치 문서 내용
 - 7개 공격 시나리오 실행 코드
 - WAF 로그 → Security Hub Finding 변환 로직

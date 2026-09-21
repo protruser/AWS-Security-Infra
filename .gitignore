@@ -24,5 +24,8 @@ credentials
 .DS_Store
 
 # --- Lambda 빌드 산출물 ---
-modules/lambda_a/src/build/
-modules/lambda_a/src/*.zip
+modules/*/src/build/
+modules/*/src/*.zip
+
+# 압축 파일(작업물은 각 저장소에 커밋)
+*.zip

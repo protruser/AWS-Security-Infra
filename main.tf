@@ -4,7 +4,9 @@
 #   security  KMS / Secrets Manager / S3 로그 / CloudTrail / Flow Logs / GuardDuty 등 / WAF 로그 그룹
 #   compute   EC2 5대 / IAM / ECR / GitHub OIDC
 #   edge      ALB / WAF / ACM / Route53
-#   lambda_a  Security Hub finding -> Security MySQL
+#   lambda_a            Security Hub finding -> Security MySQL
+#   lambda_b            WAF 로그 분석 -> Security MySQL (5분마다)
+#   lambda_remediation  대시보드 승인 -> WAF IP 차단 / SSM 재시작 / Access Key 비활성화
 
 module "network" {
   source = "./modules/network"
@@ -83,11 +85,47 @@ module "lambda_a" {
   project                  = var.project
   enable_security_services = var.enable_security_services
 
-  subnet_ids        = [module.network.private_subnet_ids["dashboard"], module.network.private_subnet_ids["security_db"]]
+  subnet_ids        = local.lambda_subnet_ids
   security_group_id = module.network.security_group_ids["lambda"]
   db_secret_arn     = module.security.security_db_secret_arn
   kms_key_arn       = module.security.security_kms_key_arn
 
   event_rule_name = module.security.securityhub_rule_name
   event_rule_arn  = module.security.securityhub_rule_arn
+}
+
+module "lambda_b" {
+  source = "./modules/lambda_b"
+
+  project           = var.project
+  subnet_ids        = local.lambda_subnet_ids
+  security_group_id = module.network.security_group_ids["lambda"]
+  db_secret_arn     = module.security.security_db_secret_arn
+  kms_key_arn       = module.security.security_kms_key_arn
+
+  shop_waf_log_group_arn   = module.security.shop_waf_log_group_arn
+  admin_waf_log_group_arn  = module.security.admin_waf_log_group_arn
+  shop_waf_log_group_name  = module.security.shop_waf_log_group_name
+  admin_waf_log_group_name = module.security.admin_waf_log_group_name
+}
+
+module "lambda_remediation" {
+  source = "./modules/lambda_remediation"
+
+  project           = var.project
+  subnet_ids        = local.lambda_subnet_ids
+  security_group_id = module.network.security_group_ids["lambda"]
+  db_secret_arn     = module.security.security_db_secret_arn
+  kms_key_arn       = module.security.security_kms_key_arn
+
+  waf_ip_set_id   = module.edge.blocked_ip_set.id
+  waf_ip_set_name = module.edge.blocked_ip_set.name
+  waf_ip_set_arn  = module.edge.blocked_ip_set.arn
+
+  instance_ids = {
+    k3s       = module.compute.instance_ids["k3s"]
+    shop_app  = module.compute.instance_ids["shop_app"]
+    dashboard = module.compute.instance_ids["dashboard"]
+  }
+  protected_cidrs = var.admin_cidrs
 }

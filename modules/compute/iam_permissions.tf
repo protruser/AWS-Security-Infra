@@ -103,3 +103,17 @@ resource "aws_iam_role_policy" "dashboard_aws_read" {
   role   = aws_iam_role.ec2["dashboard"].id
   policy = data.aws_iam_policy_document.dashboard_aws_read.json
 }
+
+# 대시보드(Flask)가 승인된 조치를 Lambda Remediation 으로 실행하도록 허용
+data "aws_iam_policy_document" "dashboard_invoke_remediation" {
+  statement {
+    actions   = ["lambda:InvokeFunction"]
+    resources = ["arn:aws:lambda:${var.region}:${data.aws_caller_identity.current.account_id}:function:${var.project}-remediation"]
+  }
+}
+
+resource "aws_iam_role_policy" "dashboard_invoke_remediation" {
+  name   = "${var.project}-dashboard-invoke-remediation"
+  role   = aws_iam_role.ec2["dashboard"].id
+  policy = data.aws_iam_policy_document.dashboard_invoke_remediation.json
+}

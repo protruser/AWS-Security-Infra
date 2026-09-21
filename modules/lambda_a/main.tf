@@ -1,5 +1,5 @@
-# Lambda A: Security Hub -> EventBridge -> Lambda A -> Security MySQL
-# 코드: src/handler.py  (배포 전 src/build.sh 로 패키지 생성)
+# Lambda A: Security Hub -> EventBridge -> Lambda A -> Security MySQL(security_events)
+# 코드: src/lambda_a.py (+ ../lambda_common). 배포 전 src/build.sh 로 패키지 생성
 
 data "archive_file" "lambda_a" {
   type        = "zip"
@@ -57,10 +57,10 @@ resource "aws_cloudwatch_log_group" "lambda_a" {
 
 resource "aws_lambda_function" "lambda_a" {
   function_name    = "${var.project}-lambda-a"
-  description      = "Security Hub finding -> Security MySQL"
+  description      = "Security Hub finding -> security_events"
   role             = aws_iam_role.lambda_a.arn
   runtime          = "python3.12"
-  handler          = "handler.lambda_handler"
+  handler          = "lambda_a.lambda_handler"
   filename         = data.archive_file.lambda_a.output_path
   source_code_hash = data.archive_file.lambda_a.output_base64sha256
   timeout          = 30
