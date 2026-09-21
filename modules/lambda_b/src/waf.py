@@ -15,15 +15,19 @@ TRAVERSAL_RE = re.compile(r"(\.\./|\.\.%2f|%2e%2e|/etc/passwd|/\.git|/\.env|phpm
 
 
 def _rule_ids(rec):
+    """이 요청에서 **실제로 걸린** 규칙 ID 만 모은다.
+
+    ruleGroupList 에는 요청이 거쳐 간 모든 규칙 그룹이 들어 있으므로(걸리지 않았어도),
+    ruleGroupId 는 쓰지 않는다. 걸린 규칙은 terminatingRule / nonTerminatingMatchingRules 에만 있다.
+    """
     ids = []
-    if rec.get("terminatingRuleId"):
+    if rec.get("terminatingRuleId") and rec["terminatingRuleId"] != "Default_Action":
         ids.append(rec["terminatingRuleId"])
     for g in rec.get("ruleGroupList") or []:
         if g.get("terminatingRule"):
             ids.append(g["terminatingRule"].get("ruleId") or "")
         for r in g.get("nonTerminatingMatchingRules") or []:
             ids.append(r.get("ruleId") or "")
-        ids.append(g.get("ruleGroupId") or "")
     return [i for i in ids if i]
 
 

@@ -24,10 +24,21 @@ def finding(product, types, rtype="AwsEc2Instance", label="HIGH", **extra):
     return f
 
 
-def rec(ip, uri="/", args="", method="GET", action="ALLOW", rules=(), ts=1000):
-    return {"timestamp": ts, "action": action,
+GROUPS = ["AWS#AWSManagedRulesCommonRuleSet", "AWS#AWSManagedRulesSQLiRuleSet"]
+
+
+def rec(ip, uri="/", args="", method="GET", action="ALLOW", matched=(), ts=1000):
+    """WAF 로그 한 줄. 요청은 항상 두 규칙 그룹을 거치고, matched 에 준 규칙만 실제로 걸린 것으로 기록한다.
+
+    SQLi_* 규칙은 SQLi 그룹에, 나머지는 Common 그룹에 걸린 것으로 둔다.
+    """
+    def group(gid, own):
+        return {"ruleGroupId": gid, "terminatingRule": None,
+                "nonTerminatingMatchingRules": [{"ruleId": m, "action": "COUNT"} for m in matched if own(m)]}
+    return {"timestamp": ts, "action": action, "terminatingRuleId": "Default_Action",
             "httpRequest": {"clientIp": ip, "uri": uri, "args": args, "httpMethod": method},
-            "ruleGroupList": [{"ruleGroupId": r, "terminatingRule": None, "nonTerminatingMatchingRules": []} for r in rules]}
+            "ruleGroupList": [group(GROUPS[0], lambda m: not m.startswith("SQLi")),
+                              group(GROUPS[1], lambda m: m.startswith("SQLi"))]}
 
 
 class MappingTest(unittest.TestCase):
@@ -72,9 +83,13 @@ class WafTest(unittest.TestCase):
         got = {e["attacker_ip"] for e in waf.detect(recs, "shop", 0, CFG)}
         self.assertEqual(got, {"1.1.1.1", "2.2.2.2", "3.3.3.3"})
 
-    def test_managed_rule_names_count(self):
-        e = waf.detect([rec("5.5.5.5", "/x", "", rules=["AWSManagedRulesSQLiRuleSet"])], "shop", 0, CFG)
+    def test_managed_rule_match_counts(self):
+        e = waf.detect([rec("5.5.5.5", "/x", "", matched=["SQLi_BODY"])], "shop", 0, CFG)
         self.assertEqual(e[0]["title"].split(" (")[0], "SQL Injection 시도 탐지")
+
+    def test_plain_request_is_not_an_attack(self):
+        """규칙 그룹을 거쳐 갔을 뿐 걸리지 않은 평범한 요청은 탐지하면 안 된다. (실제 오탐 회귀 테스트)"""
+        self.assertEqual(waf.detect([rec("16.5.0.236", "/")], "shop", 0, CFG), [])
 
     def test_brute_force_needs_threshold(self):
         few = [rec("6.6.6.6", "/login", method="POST") for _ in range(9)]
