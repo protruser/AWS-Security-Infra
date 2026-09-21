@@ -104,7 +104,6 @@ Internet
 | `modules/lambda_common` | 세 Lambda 가 함께 쓰는 DB·매핑 코드와 테스트 |
 | `docs/` | 실행방법·반영현황 등 문서 |
 
-`moved.tf` 는 단일 구성에서 모듈로 옮길 때 리소스 주소만 이동시키는 블록입니다. 모든 환경에서 apply 를 마친 뒤에는 삭제해도 됩니다.
 
 Lambda 3개(`lambda_a`, `lambda_b`, `lambda_remediation`)는 plan 전에 각 `src/build.sh` 로 패키지를 만들어야 합니다. 공통 DB 코드는 `modules/lambda_common` 에 있습니다.
 
