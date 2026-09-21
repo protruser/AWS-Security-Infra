@@ -1,0 +1,26 @@
+{
+  "detail-type": "Security Hub Findings - Imported",
+  "detail": {
+    "findings": [
+      {
+        "Id": "arn:aws:guardduty:ap-northeast-2:000000000000:detector/test/finding/manual-test-portscan-001",
+        "ProductName": "GuardDuty",
+        "Title": "[수동 테스트] EC2 instance is being probed by a port scan",
+        "Types": ["TTPs/Discovery/Recon:EC2-Portscan"],
+        "GeneratorId": "arn:aws:guardduty:ap-northeast-2:000000000000:detector/test",
+        "Severity": { "Label": "MEDIUM", "Normalized": 40 },
+        "CreatedAt": "2026-09-21T05:00:00.000Z",
+        "UpdatedAt": "2026-09-21T05:10:00.000Z",
+        "Resources": [{ "Type": "AwsEc2Instance", "Id": "arn:aws:ec2:ap-northeast-2:000000000000:instance/i-0048fb5ad29d60e39" }],
+        "Action": {
+          "PortProbeAction": {
+            "PortProbeDetails": [{ "RemoteIpDetails": { "IpAddressV4": "203.0.113.9" } }]
+          }
+        },
+        "Compliance": { "Status": "FAILED" },
+        "Workflow": { "Status": "NEW" },
+        "RecordState": "ACTIVE"
+      }
+    ]
+  }
+}
