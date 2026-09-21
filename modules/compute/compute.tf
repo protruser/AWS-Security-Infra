@@ -175,7 +175,7 @@ resource "aws_instance" "shop_db" {
   ]
 
   tags = {
-    Name = "${var.server_name_prefix}-03-shop-mysql"
+    Name = "${var.server_name_prefix}-04-shop-mysql"
     Role = "shop-db"
   }
 }
@@ -214,7 +214,7 @@ resource "aws_instance" "security_db" {
   ]
 
   tags = {
-    Name = "${var.server_name_prefix}-04-security-mysql"
+    Name = "${var.server_name_prefix}-05-security-mysql"
     Role = "security-db"
   }
 }
