@@ -1,0 +1,24 @@
+# --- Terraform: state 에는 DB 비밀번호 등 시크릿이 평문으로 들어간다. 절대 커밋하지 않는다. ---
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars
+!*.tfvars.example
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+backend.tf
+
+# --- AWS / 키 ---
+*.pem
+*.key
+.env*
+.aws/
+credentials
+
+# --- 기타 ---
+.DS_Store
