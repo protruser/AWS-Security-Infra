@@ -1,52 +1,40 @@
 output "vpc_id" {
-  value = aws_vpc.main.id
+  value = module.network.vpc_id
 }
 
 output "private_subnet_ids" {
-  value = {
-    for k, v in aws_subnet.private : k => v.id
-  }
+  value = module.network.private_subnet_ids
 }
 
 output "shop_alb_dns" {
-  value = aws_lb.shop.dns_name
+  value = module.edge.shop_alb_dns
 }
 
 output "admin_alb_dns" {
-  value = aws_lb.admin.dns_name
+  value = module.edge.admin_alb_dns
 }
 
 output "shop_url" {
-  value = var.enable_custom_domain ? "https://${var.shop_domain}" : "http://${aws_lb.shop.dns_name}"
+  value = var.enable_custom_domain ? "https://${var.shop_domain}" : "http://${module.edge.shop_alb_dns}"
 }
 
 output "admin_url" {
-  value = var.enable_custom_domain ? "https://${var.admin_domain}" : "http://${aws_lb.admin.dns_name}"
+  value = var.enable_custom_domain ? "https://${var.admin_domain}" : "http://${module.edge.admin_alb_dns}"
 }
 
 output "security_log_bucket" {
-  value = aws_s3_bucket.security_logs.bucket
+  value = module.security.security_logs_bucket
 }
 
 output "ecr_repositories" {
-  value = {
-    nginx     = aws_ecr_repository.nginx.repository_url
-    shop_app  = aws_ecr_repository.shop_app.repository_url
-    dashboard = aws_ecr_repository.dashboard.repository_url
-  }
+  value = module.compute.ecr_repositories
 }
 
 output "github_deploy_role_arn" {
-  value = try(aws_iam_role.github_deploy[0].arn, null)
+  value = module.compute.github_deploy_role_arn
 }
 
 output "instance_ids" {
   description = "GitHub Actions(SSM) 배포 대상 서버 ID"
-  value = {
-    k3s         = aws_instance.k3s.id
-    shop_app    = aws_instance.shop_app.id
-    dashboard   = aws_instance.dashboard.id
-    shop_db     = aws_instance.shop_db.id
-    security_db = aws_instance.security_db.id
-  }
+  value       = module.compute.instance_ids
 }

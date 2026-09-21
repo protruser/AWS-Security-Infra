@@ -38,8 +38,8 @@ data "aws_iam_policy_document" "shop_secret_read" {
     ]
 
     resources = [
-      aws_secretsmanager_secret.shop_db.arn,
-      aws_kms_key.shop.arn
+      var.shop_db_secret_arn,
+      var.shop_kms_key_arn
     ]
   }
 }
@@ -64,8 +64,8 @@ data "aws_iam_policy_document" "security_secret_read" {
     ]
 
     resources = [
-      aws_secretsmanager_secret.security_db.arn,
-      aws_kms_key.security.arn
+      var.security_db_secret_arn,
+      var.security_kms_key_arn
     ]
   }
 }

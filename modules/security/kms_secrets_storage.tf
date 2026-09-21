@@ -83,7 +83,7 @@ data "aws_iam_policy_document" "security_kms" {
       identifiers = ["cloudtrail.amazonaws.com"]
     }
 
-    actions = ["kms:GenerateDataKey*"]
+    actions   = ["kms:GenerateDataKey*"]
     resources = ["*"]
 
     condition {
@@ -163,7 +163,7 @@ resource "aws_secretsmanager_secret_version" "shop_db" {
     password = random_password.shop_db.result
     port     = 3306
     database = "shop"
-    host     = aws_instance.shop_db.private_ip
+    host     = var.shop_db_private_ip
   })
 }
 
@@ -175,7 +175,7 @@ resource "aws_secretsmanager_secret_version" "security_db" {
     password = random_password.security_db.result
     port     = 3306
     database = "security"
-    host     = aws_instance.security_db.private_ip
+    host     = var.security_db_private_ip
   })
 }
 

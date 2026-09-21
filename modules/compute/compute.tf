@@ -19,8 +19,8 @@ locals {
 resource "aws_instance" "k3s" {
   ami                    = data.aws_ssm_parameter.al2023_ami.value
   instance_type          = var.instance_types.k3s
-  subnet_id              = aws_subnet.private["service"].id
-  vpc_security_group_ids = [aws_security_group.k3s.id]
+  subnet_id              = var.private_subnet_ids["service"]
+  vpc_security_group_ids = [var.security_group_ids["k3s"]]
   iam_instance_profile   = aws_iam_instance_profile.ec2["k3s"].name
 
   user_data = templatefile("${path.module}/user_data/k3s_nginx.sh.tftpl", {
@@ -34,7 +34,7 @@ resource "aws_instance" "k3s" {
 
   root_block_device {
     encrypted   = true
-    kms_key_id  = aws_kms_key.shop.arn
+    kms_key_id  = var.shop_kms_key_arn
     volume_type = "gp3"
     volume_size = 20
   }
@@ -58,8 +58,8 @@ resource "aws_instance" "k3s" {
 resource "aws_instance" "dashboard" {
   ami                    = data.aws_ssm_parameter.al2023_ami.value
   instance_type          = var.instance_types.dashboard
-  subnet_id              = aws_subnet.private["dashboard"].id
-  vpc_security_group_ids = [aws_security_group.dashboard.id]
+  subnet_id              = var.private_subnet_ids["dashboard"]
+  vpc_security_group_ids = [var.security_group_ids["dashboard"]]
   iam_instance_profile   = aws_iam_instance_profile.ec2["dashboard"].name
 
   user_data = templatefile("${path.module}/user_data/app_placeholder.sh.tftpl", {
@@ -73,7 +73,7 @@ resource "aws_instance" "dashboard" {
 
   root_block_device {
     encrypted   = true
-    kms_key_id  = aws_kms_key.security.arn
+    kms_key_id  = var.security_kms_key_arn
     volume_type = "gp3"
     volume_size = 20
   }
@@ -101,8 +101,8 @@ resource "aws_instance" "dashboard" {
 resource "aws_instance" "shop_app" {
   ami                    = data.aws_ssm_parameter.al2023_ami.value
   instance_type          = var.instance_types.shop_app
-  subnet_id              = aws_subnet.private["shop_db"].id
-  vpc_security_group_ids = [aws_security_group.shop_app.id]
+  subnet_id              = var.private_subnet_ids["shop_db"]
+  vpc_security_group_ids = [var.security_group_ids["shop_app"]]
   iam_instance_profile   = aws_iam_instance_profile.ec2["shop-app"].name
 
   user_data = templatefile("${path.module}/user_data/app_placeholder.sh.tftpl", {
@@ -116,7 +116,7 @@ resource "aws_instance" "shop_app" {
 
   root_block_device {
     encrypted   = true
-    kms_key_id  = aws_kms_key.shop.arn
+    kms_key_id  = var.shop_kms_key_arn
     volume_type = "gp3"
     volume_size = 20
   }
@@ -144,22 +144,22 @@ resource "aws_instance" "shop_app" {
 resource "aws_instance" "shop_db" {
   ami                    = data.aws_ssm_parameter.al2023_ami.value
   instance_type          = var.instance_types.shop_db
-  subnet_id              = aws_subnet.private["shop_db"].id
-  vpc_security_group_ids = [aws_security_group.shop_db.id]
+  subnet_id              = var.private_subnet_ids["shop_db"]
+  vpc_security_group_ids = [var.security_group_ids["shop_db"]]
   iam_instance_profile   = aws_iam_instance_profile.ec2["shop-db"].name
 
   user_data = templatefile("${path.module}/user_data/mysql.sh.tftpl", {
     docker_install = local.docker_install
     mysql_image    = var.mysql_image
     region         = var.region
-    secret_id      = aws_secretsmanager_secret.shop_db.arn
+    secret_id      = var.shop_db_secret_arn
     extra_packages = local.base_packages
   })
   user_data_replace_on_change = true
 
   root_block_device {
     encrypted   = true
-    kms_key_id  = aws_kms_key.shop.arn
+    kms_key_id  = var.shop_kms_key_arn
     volume_type = "gp3"
     volume_size = 30
   }
@@ -183,22 +183,22 @@ resource "aws_instance" "shop_db" {
 resource "aws_instance" "security_db" {
   ami                    = data.aws_ssm_parameter.al2023_ami.value
   instance_type          = var.instance_types.security_db
-  subnet_id              = aws_subnet.private["security_db"].id
-  vpc_security_group_ids = [aws_security_group.security_db.id]
+  subnet_id              = var.private_subnet_ids["security_db"]
+  vpc_security_group_ids = [var.security_group_ids["security_db"]]
   iam_instance_profile   = aws_iam_instance_profile.ec2["security-db"].name
 
   user_data = templatefile("${path.module}/user_data/mysql.sh.tftpl", {
     docker_install = local.docker_install
     mysql_image    = var.mysql_image
     region         = var.region
-    secret_id      = aws_secretsmanager_secret.security_db.arn
+    secret_id      = var.security_db_secret_arn
     extra_packages = local.base_packages
   })
   user_data_replace_on_change = true
 
   root_block_device {
     encrypted   = true
-    kms_key_id  = aws_kms_key.security.arn
+    kms_key_id  = var.security_kms_key_arn
     volume_type = "gp3"
     volume_size = 30
   }

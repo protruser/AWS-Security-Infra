@@ -2,8 +2,8 @@ resource "aws_lb" "shop" {
   name               = "${var.project}-shop-alb"
   load_balancer_type = "application"
   internal           = false
-  security_groups    = [aws_security_group.shop_alb.id]
-  subnets            = [for s in aws_subnet.public : s.id]
+  security_groups    = [var.security_group_ids["shop_alb"]]
+  subnets            = values(var.public_subnet_ids)
 
   tags = {
     Name = "${var.project}-shop-alb"
@@ -14,8 +14,8 @@ resource "aws_lb" "admin" {
   name               = "${var.project}-admin-alb"
   load_balancer_type = "application"
   internal           = false
-  security_groups    = [aws_security_group.admin_alb.id]
-  subnets            = [for s in aws_subnet.public : s.id]
+  security_groups    = [var.security_group_ids["admin_alb"]]
+  subnets            = values(var.public_subnet_ids)
 
   tags = {
     Name = "${var.project}-admin-alb"
@@ -26,7 +26,7 @@ resource "aws_lb_target_group" "shop" {
   name     = "${var.project}-shop-tg"
   port     = 30443
   protocol = "HTTPS"
-  vpc_id   = aws_vpc.main.id
+  vpc_id   = var.vpc_id
 
   health_check {
     enabled             = true
@@ -43,7 +43,7 @@ resource "aws_lb_target_group" "admin" {
   name     = "${var.project}-admin-tg"
   port     = 8443
   protocol = "HTTPS"
-  vpc_id   = aws_vpc.main.id
+  vpc_id   = var.vpc_id
 
   health_check {
     enabled             = true
@@ -58,13 +58,13 @@ resource "aws_lb_target_group" "admin" {
 
 resource "aws_lb_target_group_attachment" "shop" {
   target_group_arn = aws_lb_target_group.shop.arn
-  target_id        = aws_instance.k3s.id
+  target_id        = var.k3s_instance_id
   port             = 30443
 }
 
 resource "aws_lb_target_group_attachment" "admin" {
   target_group_arn = aws_lb_target_group.admin.arn
-  target_id        = aws_instance.dashboard.id
+  target_id        = var.dashboard_instance_id
   port             = 8443
 }
 
@@ -282,24 +282,13 @@ resource "aws_wafv2_web_acl_association" "admin" {
   web_acl_arn  = aws_wafv2_web_acl.admin.arn
 }
 
-resource "aws_cloudwatch_log_group" "shop_waf" {
-  name              = "aws-waf-logs-${var.project}-shop"
-  retention_in_days = 30
-  kms_key_id        = aws_kms_key.security.arn
-}
-
-resource "aws_cloudwatch_log_group" "admin_waf" {
-  name              = "aws-waf-logs-${var.project}-admin"
-  retention_in_days = 30
-  kms_key_id        = aws_kms_key.security.arn
-}
 
 resource "aws_wafv2_web_acl_logging_configuration" "shop" {
   resource_arn            = aws_wafv2_web_acl.shop.arn
-  log_destination_configs = [aws_cloudwatch_log_group.shop_waf.arn]
+  log_destination_configs = [var.shop_waf_log_group_arn]
 }
 
 resource "aws_wafv2_web_acl_logging_configuration" "admin" {
   resource_arn            = aws_wafv2_web_acl.admin.arn
-  log_destination_configs = [aws_cloudwatch_log_group.admin_waf.arn]
+  log_destination_configs = [var.admin_waf_log_group_arn]
 }

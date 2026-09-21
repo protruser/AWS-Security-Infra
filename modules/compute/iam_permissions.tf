@@ -70,9 +70,9 @@ data "aws_iam_policy_document" "dashboard_aws_read" {
       "logs:StartQuery"
     ]
     resources = [
-      "${aws_cloudwatch_log_group.shop_waf.arn}:*",
-      "${aws_cloudwatch_log_group.admin_waf.arn}:*",
-      "${aws_cloudwatch_log_group.vpc_flow.arn}:*"
+      "${var.shop_waf_log_group_arn}:*",
+      "${var.admin_waf_log_group_arn}:*",
+      "${var.vpc_flow_log_group_arn}:*"
     ]
   }
 
@@ -92,8 +92,8 @@ data "aws_iam_policy_document" "dashboard_aws_read" {
     sid     = "LogBucketRead"
     actions = ["s3:GetObject", "s3:ListBucket"]
     resources = [
-      aws_s3_bucket.security_logs.arn,
-      "${aws_s3_bucket.security_logs.arn}/*"
+      var.security_logs_bucket_arn,
+      "${var.security_logs_bucket_arn}/*"
     ]
   }
 }

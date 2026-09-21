@@ -1,3 +1,43 @@
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+locals {
+  public_subnets = {
+    public_a = {
+      cidr     = var.public_subnet_cidrs[0]
+      az_index = 0
+    }
+    public_b = {
+      cidr     = var.public_subnet_cidrs[1]
+      az_index = 1
+    }
+  }
+
+  private_subnets = {
+    service = {
+      cidr     = var.private_subnet_cidrs.service
+      az_index = 0
+      name     = "01-service"
+    }
+    dashboard = {
+      cidr     = var.private_subnet_cidrs.dashboard
+      az_index = 1
+      name     = "02-dashboard"
+    }
+    shop_db = {
+      cidr     = var.private_subnet_cidrs.shop_db
+      az_index = 0
+      name     = "03-shop-db"
+    }
+    security_db = {
+      cidr     = var.private_subnet_cidrs.security_db
+      az_index = 1
+      name     = "04-security-db"
+    }
+  }
+}
+
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true

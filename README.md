@@ -1,11 +1,11 @@
 # 먼저 읽어주세요
 
-Windows CMD 기준 상세 실행방법은 **`00_실행방법_설명서.md`**,
-명령어만 빠르게 보고 싶다면 **`00_빠른실행.txt`**를 먼저 확인하세요.
+Windows CMD 기준 상세 실행방법은 **`docs/00_실행방법_설명서.md`**,
+명령어만 빠르게 보고 싶다면 **`docs/00_빠른실행.txt`**를 먼저 확인하세요.
 
 ---
 
-보안 서비스가 현재 어디까지 Terraform에 반영되어 있는지는 **`01_보안서비스_반영현황.md`**를 확인하세요.
+보안 서비스가 현재 어디까지 Terraform에 반영되어 있는지는 **`docs/01_보안서비스_반영현황.md`**를 확인하세요.
 
 # wonny-sec Terraform — 최신 아키텍처 반영본
 
@@ -90,6 +90,23 @@ Internet
 > WAF는 자체적으로 Security Hub ASFF finding을 직접 생성하지 않습니다.
 > WAF 로그를 Security Hub finding으로 변환하려면 별도의 Lambda/백엔드 로직이 필요합니다.
 
+## 폴더 구조
+
+루트(`main.tf`)는 모듈을 연결만 하고, 리소스는 `modules/` 아래에 있습니다.
+
+| 경로 | 내용 |
+|---|---|
+| `modules/network` | VPC / Subnet / NAT / Security Group / VPC Endpoint |
+| `modules/security` | KMS / Secrets Manager / S3 로그 / CloudTrail / Flow Logs / GuardDuty / Inspector / Security Hub / WAF 로그 그룹 |
+| `modules/compute` | EC2 5대 / IAM / ECR / GitHub OIDC (`user_data/` 포함) |
+| `modules/edge` | ALB / WAF / ACM / Route53 |
+| `modules/lambda_a` | Security Hub finding → Security MySQL (`src/` 에 코드) |
+| `docs/` | 실행방법·반영현황 등 문서 |
+
+`moved.tf` 는 단일 구성에서 모듈로 옮길 때 리소스 주소만 이동시키는 블록입니다. 모든 환경에서 apply 를 마친 뒤에는 삭제해도 됩니다.
+
+Lambda A 는 배포 전에 `bash modules/lambda_a/src/build.sh` 로 패키지를 만들어야 plan 이 통과합니다.
+
 ## Dashboard 범위
 
 Terraform은 아래까지만 담당합니다.
@@ -112,7 +129,7 @@ Dashboard Flask 코드, 화면, 그래프, API, DB 조회 로직은 별도로 �
 - Flask 쇼핑몰 애플리케이션 코드
 - Dashboard 애플리케이션 코드
 - MySQL 설치 / 초기 스키마
-- Lambda A 코드
+- Lambda A 코드 배포 검증 (코드/Terraform 은 `modules/lambda_a` 에 작성됨)
 - Lambda B 코드
 - Lambda Remediation 코드
 - SSM 자동조치 문서 내용

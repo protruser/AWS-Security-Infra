@@ -1,0 +1,14 @@
+variable "project" { type = string }
+variable "vpc_id" { type = string }
+variable "public_subnet_ids" { type = map(string) }
+variable "security_group_ids" { type = map(string) }
+variable "k3s_instance_id" { type = string }
+variable "dashboard_instance_id" { type = string }
+variable "shop_waf_log_group_arn" { type = string }
+variable "admin_waf_log_group_arn" { type = string }
+variable "shop_rate_limit" { type = number }
+variable "admin_rate_limit" { type = number }
+variable "enable_custom_domain" { type = bool }
+variable "route53_zone_id" { type = string }
+variable "shop_domain" { type = string }
+variable "admin_domain" { type = string }

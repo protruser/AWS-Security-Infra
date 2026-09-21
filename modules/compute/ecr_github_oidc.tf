@@ -8,7 +8,7 @@ resource "aws_ecr_repository" "nginx" {
 
   encryption_configuration {
     encryption_type = "KMS"
-    kms_key         = aws_kms_key.shop.arn
+    kms_key         = var.shop_kms_key_arn
   }
 }
 
@@ -22,7 +22,7 @@ resource "aws_ecr_repository" "shop_app" {
 
   encryption_configuration {
     encryption_type = "KMS"
-    kms_key         = aws_kms_key.shop.arn
+    kms_key         = var.shop_kms_key_arn
   }
 }
 
@@ -36,7 +36,7 @@ resource "aws_ecr_repository" "dashboard" {
 
   encryption_configuration {
     encryption_type = "KMS"
-    kms_key         = aws_kms_key.security.arn
+    kms_key         = var.security_kms_key_arn
   }
 }
 

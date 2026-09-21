@@ -22,3 +22,7 @@ credentials
 
 # --- 기타 ---
 .DS_Store
+
+# --- Lambda 빌드 산출물 ---
+modules/lambda_a/src/build/
+modules/lambda_a/src/*.zip
