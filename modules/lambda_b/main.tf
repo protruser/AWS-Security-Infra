@@ -71,8 +71,6 @@ resource "aws_lambda_function" "this" {
   timeout          = 120
   memory_size      = 512
 
-  # 같은 구간을 두 번 처리하지 않도록 동시 실행 1개
-  reserved_concurrent_executions = 1
 
   vpc_config {
     subnet_ids         = var.subnet_ids

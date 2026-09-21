@@ -66,8 +66,6 @@ resource "aws_lambda_function" "lambda_a" {
   timeout          = 30
   memory_size      = 256
 
-  # 동시 실행을 제한해 DB 연결 폭주를 막는다.
-  reserved_concurrent_executions = 5
 
   # 서로 다른 AZ의 private subnet 2개 (NAT 경유로 Secrets Manager 접근)
   vpc_config {

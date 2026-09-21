@@ -103,7 +103,6 @@ resource "aws_lambda_function" "this" {
   timeout          = 90
   memory_size      = 256
 
-  reserved_concurrent_executions = 5
 
   vpc_config {
     subnet_ids         = var.subnet_ids
