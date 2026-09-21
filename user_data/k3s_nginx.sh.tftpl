@@ -1,0 +1,101 @@
+#!/bin/bash
+# k3s + nginx 서버 첫 부팅 스크립트.
+# 구조: ALB -> 이 서버의 NodePort ${node_port} -> k3s 안의 nginx
+# k3s 는 자체 containerd 를 쓰므로 Docker 와 공존한다. (Docker 는 이미지 pull/점검용)
+# 실제 nginx 이미지가 ECR 에 올라가기 전까지 자리표시자 nginx 로 /health 에 200 을 준다.
+set -euxo pipefail
+exec > >(tee /var/log/user-data.log) 2>&1
+
+${docker_install}
+
+dnf install -y openssl
+# 점검용 도구는 실패해도 전체 설치를 막지 않는다.
+dnf install -y ${extra_packages} || true
+
+# k3s 설치. 이 구조는 NodePort 만 쓰므로 traefik / servicelb 는 끈다.
+curl -sfL https://get.k3s.io | INSTALL_K3S_CHANNEL=${k3s_channel} sh -s - \
+  --write-kubeconfig-mode 644 --disable traefik --disable servicelb
+
+# 노드가 Ready 가 될 때까지 최대 5분 기다린다.
+for i in $(seq 1 60); do
+  if /usr/local/bin/k3s kubectl get nodes 2>/dev/null | grep -q ' Ready'; then
+    break
+  fi
+  sleep 5
+done
+/usr/local/bin/k3s kubectl get nodes | grep -q ' Ready'
+
+# 자리표시자용 자체 서명 인증서 (ALB 는 대상 서버 인증서를 검증하지 않는다)
+mkdir -p /opt/placeholder/certs
+openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+  -keyout /opt/placeholder/certs/tls.key \
+  -out /opt/placeholder/certs/tls.crt \
+  -subj "/CN=nginx"
+
+/usr/local/bin/k3s kubectl create secret tls nginx-tls \
+  --cert=/opt/placeholder/certs/tls.crt \
+  --key=/opt/placeholder/certs/tls.key
+
+/usr/local/bin/k3s kubectl apply -f - <<'YAML'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-conf
+data:
+  default.conf: |
+    server {
+      listen 443 ssl;
+      ssl_certificate     /etc/nginx/certs/tls.crt;
+      ssl_certificate_key /etc/nginx/certs/tls.key;
+      default_type text/plain;
+
+      location = /health { return 200 'ok'; }
+      location /          { return 200 'placeholder: nginx (k3s)'; }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: ${placeholder_image}
+          ports:
+            - containerPort: 443
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/nginx/conf.d
+            - name: certs
+              mountPath: /etc/nginx/certs
+              readOnly: true
+      volumes:
+        - name: conf
+          configMap:
+            name: nginx-conf
+        - name: certs
+          secret:
+            secretName: nginx-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+spec:
+  type: NodePort
+  selector:
+    app: nginx
+  ports:
+    - port: 443
+      targetPort: 443
+      nodePort: ${node_port}
+YAML

@@ -1,0 +1,42 @@
+#!/bin/bash
+# DB 서버(shop-mysql / security-mysql) 첫 부팅 스크립트.
+# Secrets Manager 의 접속 정보로 MySQL 컨테이너를 만든다. 비밀번호는 코드/로그에 남기지 않는다.
+set -euxo pipefail
+exec > >(tee /var/log/user-data.log) 2>&1
+
+${docker_install}
+
+# 점검용 도구는 실패해도 전체 설치를 막지 않는다.
+dnf install -y ${extra_packages} || true
+
+mkdir -p /var/lib/mysql-data
+
+# 시크릿 값(secret version)은 서버가 만들어진 뒤에 생성되므로, 준비될 때까지 최대 10분 기다린다.
+for i in $(seq 1 60); do
+  if aws secretsmanager get-secret-value --region ${region} --secret-id ${secret_id} \
+       --query SecretString --output text > /root/secret.json 2>/dev/null; then
+    break
+  fi
+  sleep 10
+done
+test -s /root/secret.json
+chmod 600 /root/secret.json
+
+# 특수문자가 들어간 비밀번호가 셸에서 깨지지 않도록 python 으로 env 파일을 만든다.
+python3 - <<'PY'
+import json
+s = json.load(open('/root/secret.json'))
+with open('/root/mysql.env', 'w') as f:
+    f.write('MYSQL_RANDOM_ROOT_PASSWORD=yes\n')
+    f.write('MYSQL_DATABASE=%s\n' % s['database'])
+    f.write('MYSQL_USER=%s\n' % s['username'])
+    f.write('MYSQL_PASSWORD=%s\n' % s['password'])
+PY
+chmod 600 /root/mysql.env
+rm -f /root/secret.json
+
+docker run -d --name mysql --restart unless-stopped \
+  --env-file /root/mysql.env \
+  -p 3306:3306 \
+  -v /var/lib/mysql-data:/var/lib/mysql \
+  ${mysql_image}

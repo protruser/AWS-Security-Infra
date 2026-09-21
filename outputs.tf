@@ -39,3 +39,14 @@ output "ecr_repositories" {
 output "github_deploy_role_arn" {
   value = try(aws_iam_role.github_deploy[0].arn, null)
 }
+
+output "instance_ids" {
+  description = "GitHub Actions(SSM) 배포 대상 서버 ID"
+  value = {
+    k3s         = aws_instance.k3s.id
+    shop_app    = aws_instance.shop_app.id
+    dashboard   = aws_instance.dashboard.id
+    shop_db     = aws_instance.shop_db.id
+    security_db = aws_instance.security_db.id
+  }
+}

@@ -136,3 +136,21 @@ variable "github_oidc_provider_arn" {
   description = "기존 GitHub Actions OIDC Provider ARN. 없으면 비워둠."
   default     = ""
 }
+
+variable "mysql_image" {
+  type        = string
+  description = "DB 서버에서 실행할 MySQL Docker 이미지"
+  default     = "mysql:8.0"
+}
+
+variable "k3s_channel" {
+  type        = string
+  description = "k3s 설치 채널(stable, latest, v1.xx 등). 재현성이 필요하면 특정 버전 채널로 고정"
+  default     = "stable"
+}
+
+variable "server_name_prefix" {
+  type        = string
+  description = "EC2 서버 Name 태그 접두사. 이름표만 바뀌며 다른 리소스에는 영향 없음."
+  default     = "dragon"
+}
