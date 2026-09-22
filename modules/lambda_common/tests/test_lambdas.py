@@ -2,16 +2,22 @@
 
 실행: python3 modules/lambda_common/tests/test_lambdas.py   (infra 폴더에서)
 """
+import datetime as dt
 import json
 import os
 import sys
 import unittest
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-sys.path[:0] = [os.path.join(ROOT, "lambda_common"), os.path.join(ROOT, "lambda_b", "src")]
+sys.path[:0] = [
+    os.path.join(ROOT, "lambda_common"),
+    os.path.join(ROOT, "lambda_b", "src"),
+    os.path.join(ROOT, "lambda_c", "src"),
+]
 
 from common import mapping  # noqa: E402
 import waf  # noqa: E402
+import metrics as lambda_c_metrics  # noqa: E402
 
 CFG = {"login_paths": {"/login"}, "brute_threshold": 10, "dir_distinct_uris": 20, "critical_count": 20}
 
@@ -113,6 +119,70 @@ class WafTest(unittest.TestCase):
         r = [rec("9.9.9.9", "/", "id=1' or '1'='1")]
         self.assertEqual(waf.detect(r, "shop", 300, CFG)[0]["id"], waf.detect(r, "shop", 300, CFG)[0]["id"])
         self.assertNotEqual(waf.detect(r, "shop", 300, CFG)[0]["id"], waf.detect(r, "shop", 600, CFG)[0]["id"])
+
+
+class LambdaCTest(unittest.TestCase):
+    INSTANCE_IDS = {"k3s": "i-k3s", "dashboard": "i-dash", "shop_app": "i-app", "shop_db": "i-sdb", "security_db": "i-secdb"}
+    ALB_SERVERS = {"k3s": ("lb-shop", "tg-shop"), "dashboard": ("lb-admin", "tg-admin")}
+    START = dt.datetime(2026, 9, 22, 3, 0, tzinfo=dt.timezone.utc)
+    END = dt.datetime(2026, 9, 22, 3, 5, tzinfo=dt.timezone.utc)
+
+    def test_build_queries_counts_and_dimensions(self):
+        qs = lambda_c_metrics.build_queries(self.INSTANCE_IDS, self.ALB_SERVERS)
+        # EC2 지표 3개 x 5대 + ALB 지표 6개 x 2대(k3s, dashboard)
+        self.assertEqual(len(qs), 3 * 5 + 6 * 2)
+        ids = {q["Id"] for q in qs}
+        self.assertIn("shop_db_cpu", ids)
+        self.assertNotIn("shop_db_req", ids)  # ALB 뒤에 없는 서버는 요청 지표가 없다
+        cpu_q = next(q for q in qs if q["Id"] == "k3s_cpu")
+        self.assertEqual(cpu_q["MetricStat"]["Metric"]["Dimensions"], [{"Name": "InstanceId", "Value": "i-k3s"}])
+        req_q = next(q for q in qs if q["Id"] == "k3s_req")
+        self.assertEqual(
+            req_q["MetricStat"]["Metric"]["Dimensions"],
+            [{"Name": "LoadBalancer", "Value": "lb-shop"}, {"Name": "TargetGroup", "Value": "tg-shop"}],
+        )
+
+    def test_healthy_server_with_traffic(self):
+        results = {
+            "k3s_cpu": [42.5], "k3s_mem": [60.0], "k3s_status": [0.0],
+            "k3s_req": [1200.0], "k3s_lat": [0.123], "k3s_5xx_t": [3.0], "k3s_5xx_e": [1.0],
+            "k3s_healthy": [1.0], "k3s_unhealthy": [0.0],
+        }
+        row = lambda_c_metrics.build_rows(["k3s"], self.ALB_SERVERS, results, self.START, self.END)[0]
+        self.assertEqual(row["status"], "healthy")
+        self.assertEqual(row["cpu_percent"], 42.5)
+        self.assertEqual(row["request_count"], 1200)
+        self.assertEqual(row["avg_latency_ms"], 123.0)
+        self.assertEqual(row["error_rate_percent"], round(4 / 1200 * 100, 2))
+
+    def test_db_server_has_no_request_metrics(self):
+        results = {"shop_db_cpu": [10.0], "shop_db_mem": [30.0], "shop_db_status": [0.0]}
+        row = lambda_c_metrics.build_rows(["shop_db"], self.ALB_SERVERS, results, self.START, self.END)[0]
+        self.assertEqual(row["status"], "healthy")
+        self.assertIsNone(row["request_count"])
+        self.assertIsNone(row["avg_latency_ms"])
+
+    def test_status_check_failed_wins_over_everything(self):
+        results = {"k3s_cpu": [5.0], "k3s_status": [1.0], "k3s_unhealthy": [0.0]}
+        row = lambda_c_metrics.build_rows(["k3s"], self.ALB_SERVERS, results, self.START, self.END)[0]
+        self.assertEqual(row["status"], "unhealthy")
+
+    def test_unhealthy_target_without_status_check_is_degraded(self):
+        results = {"dashboard_cpu": [5.0], "dashboard_status": [0.0], "dashboard_unhealthy": [1.0]}
+        row = lambda_c_metrics.build_rows(["dashboard"], self.ALB_SERVERS, results, self.START, self.END)[0]
+        self.assertEqual(row["status"], "degraded")
+
+    def test_no_datapoints_is_unknown_not_unhealthy(self):
+        """부팅 직후처럼 이 구간에 지표가 없으면 unknown 이지, 죽었다고 단정하지 않는다."""
+        row = lambda_c_metrics.build_rows(["shop_app"], self.ALB_SERVERS, {}, self.START, self.END)[0]
+        self.assertEqual(row["status"], "unknown")
+        self.assertIsNone(row["cpu_percent"])
+
+    def test_zero_requests_gives_zero_error_rate_not_division_error(self):
+        results = {"k3s_cpu": [1.0], "k3s_req": [0.0]}
+        row = lambda_c_metrics.build_rows(["k3s"], self.ALB_SERVERS, results, self.START, self.END)[0]
+        self.assertEqual(row["request_count"], 0)
+        self.assertEqual(row["error_rate_percent"], 0.0)
 
 
 if __name__ == "__main__":

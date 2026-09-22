@@ -6,6 +6,8 @@ exec > >(tee /var/log/user-data.log) 2>&1
 
 ${docker_install}
 
+${cw_agent_install}
+
 # 점검용 도구는 실패해도 전체 설치를 막지 않는다.
 dnf install -y ${extra_packages} || true
 

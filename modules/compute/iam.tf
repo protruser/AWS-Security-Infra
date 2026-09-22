@@ -23,6 +23,15 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+# CPU는 AWS가 기본 제공하지만 메모리는 CloudWatch Agent가 직접 올려야 해서 전 서버에 붙인다.
+# (Agent 설정 조회 + cloudwatch:PutMetricData 를 포함하는 AWS 관리형 정책)
+resource "aws_iam_role_policy_attachment" "cw_agent" {
+  for_each = local.instance_role_names
+
+  role       = aws_iam_role.ec2[each.key].name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
 resource "aws_iam_instance_profile" "ec2" {
   for_each = local.instance_role_names
 

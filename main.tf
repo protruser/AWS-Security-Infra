@@ -6,6 +6,7 @@
 #   edge      ALB / WAF / ACM / Route53
 #   lambda_a            Security Hub finding -> Security MySQL
 #   lambda_b            WAF 로그 분석 -> Security MySQL (5분마다)
+#   lambda_c            CloudWatch 지표(CPU/메모리/지연/처리량/에러율/상태) -> Security MySQL (5분마다)
 #   lambda_remediation  대시보드 승인 -> WAF IP 차단 / SSM 재시작 / Access Key 비활성화
 
 module "network" {
@@ -107,6 +108,23 @@ module "lambda_b" {
   admin_waf_log_group_arn  = module.security.admin_waf_log_group_arn
   shop_waf_log_group_name  = module.security.shop_waf_log_group_name
   admin_waf_log_group_name = module.security.admin_waf_log_group_name
+}
+
+module "lambda_c" {
+  source = "./modules/lambda_c"
+
+  project           = var.project
+  subnet_ids        = local.lambda_subnet_ids
+  security_group_id = module.network.security_group_ids["lambda"]
+  db_secret_arn     = module.security.security_db_secret_arn
+  kms_key_arn       = module.security.security_kms_key_arn
+
+  instance_ids = module.compute.instance_ids
+
+  shop_lb_arn_suffix  = module.edge.shop_lb_arn_suffix
+  shop_tg_arn_suffix  = module.edge.shop_tg_arn_suffix
+  admin_lb_arn_suffix = module.edge.admin_lb_arn_suffix
+  admin_tg_arn_suffix = module.edge.admin_tg_arn_suffix
 }
 
 module "lambda_remediation" {

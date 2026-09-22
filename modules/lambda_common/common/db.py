@@ -57,6 +57,24 @@ SCHEMA = [
           ON DELETE CASCADE
     ) CHARACTER SET utf8mb4
     """,
+    """
+    CREATE TABLE IF NOT EXISTS service_metrics (
+        server           VARCHAR(40) PRIMARY KEY,
+        display_name     VARCHAR(80) NOT NULL,
+        status           VARCHAR(20) NOT NULL DEFAULT 'unknown',
+        cpu_percent      DECIMAL(5,2) NULL,
+        memory_percent   DECIMAL(5,2) NULL,
+        request_count    INT NULL,
+        avg_latency_ms   DECIMAL(8,2) NULL,
+        error_rate_percent DECIMAL(5,2) NULL,
+        healthy_targets  INT NULL,
+        unhealthy_targets INT NULL,
+        window_start     DATETIME NULL,
+        window_end       DATETIME NULL,
+        updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                          ON UPDATE CURRENT_TIMESTAMP
+    ) CHARACTER SET utf8mb4
+    """,
 ]
 
 UPSERT_EVENT = """
@@ -141,3 +159,38 @@ def upsert_events(events):
     with get_conn().cursor() as cur:
         cur.executemany(UPSERT_EVENT, rows)
     return len(rows)
+
+
+UPSERT_METRIC = """
+INSERT INTO service_metrics (
+  server, display_name, status, cpu_percent, memory_percent, request_count,
+  avg_latency_ms, error_rate_percent, healthy_targets, unhealthy_targets,
+  window_start, window_end
+) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+ON DUPLICATE KEY UPDATE
+  display_name=VALUES(display_name), status=VALUES(status),
+  cpu_percent=VALUES(cpu_percent), memory_percent=VALUES(memory_percent),
+  request_count=VALUES(request_count), avg_latency_ms=VALUES(avg_latency_ms),
+  error_rate_percent=VALUES(error_rate_percent),
+  healthy_targets=VALUES(healthy_targets), unhealthy_targets=VALUES(unhealthy_targets),
+  window_start=VALUES(window_start), window_end=VALUES(window_end)
+"""
+
+
+def upsert_service_metrics(rows):
+    """rows: server(고정 키)당 최신 상태 1건. 표에는 서버 수만큼(5행)만 남는다(이력 아님)."""
+    if not rows:
+        return 0
+    values = [
+        (
+            r["server"], r["display_name"], r.get("status", "unknown"),
+            r.get("cpu_percent"), r.get("memory_percent"), r.get("request_count"),
+            r.get("avg_latency_ms"), r.get("error_rate_percent"),
+            r.get("healthy_targets"), r.get("unhealthy_targets"),
+            r.get("window_start"), r.get("window_end"),
+        )
+        for r in rows
+    ]
+    with get_conn().cursor() as cur:
+        cur.executemany(UPSERT_METRIC, values)
+    return len(values)

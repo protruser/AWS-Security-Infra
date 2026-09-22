@@ -1,5 +1,6 @@
 locals {
   docker_install    = file("${path.module}/user_data/docker_install.sh")
+  cw_agent_install  = file("${path.module}/user_data/cwagent_install.sh")
   placeholder_image = "nginx:stable-alpine"
 
   # 점검용 도구. app_packages 의 mariadb105 는 MySQL 클라이언트(DB 연결 확인용).
@@ -25,6 +26,7 @@ resource "aws_instance" "k3s" {
 
   user_data = templatefile("${path.module}/user_data/k3s_nginx.sh.tftpl", {
     docker_install    = local.docker_install
+    cw_agent_install  = local.cw_agent_install
     placeholder_image = local.placeholder_image
     extra_packages    = local.base_packages
     k3s_channel       = var.k3s_channel
@@ -64,6 +66,7 @@ resource "aws_instance" "dashboard" {
 
   user_data = templatefile("${path.module}/user_data/app_placeholder.sh.tftpl", {
     docker_install    = local.docker_install
+    cw_agent_install  = local.cw_agent_install
     placeholder_image = local.placeholder_image
     extra_packages    = local.app_packages
     container_name    = "dashboard"
@@ -107,6 +110,7 @@ resource "aws_instance" "shop_app" {
 
   user_data = templatefile("${path.module}/user_data/app_placeholder.sh.tftpl", {
     docker_install    = local.docker_install
+    cw_agent_install  = local.cw_agent_install
     placeholder_image = local.placeholder_image
     extra_packages    = local.app_packages
     container_name    = "shop-app"
@@ -149,11 +153,12 @@ resource "aws_instance" "shop_db" {
   iam_instance_profile   = aws_iam_instance_profile.ec2["shop-db"].name
 
   user_data = templatefile("${path.module}/user_data/mysql.sh.tftpl", {
-    docker_install = local.docker_install
-    mysql_image    = var.mysql_image
-    region         = var.region
-    secret_id      = var.shop_db_secret_arn
-    extra_packages = local.base_packages
+    docker_install   = local.docker_install
+    cw_agent_install = local.cw_agent_install
+    mysql_image      = var.mysql_image
+    region           = var.region
+    secret_id        = var.shop_db_secret_arn
+    extra_packages   = local.base_packages
   })
   user_data_replace_on_change = true
 
@@ -178,6 +183,12 @@ resource "aws_instance" "shop_db" {
     Name = "${var.server_name_prefix}-04-shop-mysql"
     Role = "shop-db"
   }
+
+  # 데이터가 쌓이는 DB 서버는 user_data(설치 스크립트)가 바뀌어도 재생성하지 않는다.
+  # (템플릿은 계속 최신으로 유지하되, 이미 떠 있는 서버는 건드리지 않는다. 새 항목은 SSM으로 수동 적용.)
+  lifecycle {
+    ignore_changes = [user_data]
+  }
 }
 
 resource "aws_instance" "security_db" {
@@ -188,11 +199,12 @@ resource "aws_instance" "security_db" {
   iam_instance_profile   = aws_iam_instance_profile.ec2["security-db"].name
 
   user_data = templatefile("${path.module}/user_data/mysql.sh.tftpl", {
-    docker_install = local.docker_install
-    mysql_image    = var.mysql_image
-    region         = var.region
-    secret_id      = var.security_db_secret_arn
-    extra_packages = local.base_packages
+    docker_install   = local.docker_install
+    cw_agent_install = local.cw_agent_install
+    mysql_image      = var.mysql_image
+    region           = var.region
+    secret_id        = var.security_db_secret_arn
+    extra_packages   = local.base_packages
   })
   user_data_replace_on_change = true
 
@@ -216,5 +228,10 @@ resource "aws_instance" "security_db" {
   tags = {
     Name = "${var.server_name_prefix}-05-security-mysql"
     Role = "security-db"
+  }
+
+  # 이미 탐지 데이터가 쌓이고 있는 서버라서, user_data가 바뀌어도 재생성하지 않는다.
+  lifecycle {
+    ignore_changes = [user_data]
   }
 }
