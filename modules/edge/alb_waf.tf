@@ -40,19 +40,36 @@ resource "aws_lb_target_group" "shop" {
 }
 
 resource "aws_lb_target_group" "admin" {
-  name     = "${var.project}-admin-tg"
-  port     = 8443
-  protocol = "HTTPS"
+  # 고정 name 대신 name_prefix를 써서 교체 시 새 타깃그룹을 먼저 만들고
+  # (create_before_destroy) 리스너를 옮긴 뒤 기존 것을 지우게 한다.
+  # (고정 name이면 기존 그룹이 아직 있는 동안 같은 이름으로 새로 못 만듦)
+  # aws_lb_target_group의 name_prefix는 6자 제한이 있다.
+  name_prefix = "admtg-"
+  port        = 8443
+  # 대시보드 컨테이너(gunicorn)는 TLS 없이 평범한 HTTP로 8443을 서빙한다.
+  # ALB가 HTTPS로 백엔드에 접속을 시도하면 TLS 핸드셰이크가 실패/타임아웃되어
+  # 502/504 및 헬스체크 unhealthy(Target.Timeout)로 이어진다.
+  protocol = "HTTP"
   vpc_id   = var.vpc_id
 
   health_check {
     enabled             = true
-    protocol            = "HTTPS"
-    path                = "/health"
+    protocol            = "HTTP"
+    # Flask 앱의 실제 헬스체크 라우트는 /api/health 뿐이다 (옛 nginx
+    # 플레이스홀더의 /health 를 그대로 쓰면 404로 계속 unhealthy 처리됨).
+    path                = "/api/health"
     matcher             = "200-399"
     healthy_threshold   = 2
     unhealthy_threshold = 3
     interval            = 30
+  }
+
+  tags = {
+    Name = "${var.project}-admin-tg"
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
