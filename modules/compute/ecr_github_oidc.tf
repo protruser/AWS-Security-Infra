@@ -98,10 +98,7 @@ data "aws_iam_policy_document" "github_deploy" {
   }
 
   statement {
-    actions = [
-      "ssm:SendCommand",
-      "ssm:GetCommandInvocation"
-    ]
+    actions = ["ssm:SendCommand"]
 
     resources = [
       aws_instance.k3s.arn,
@@ -109,6 +106,15 @@ data "aws_iam_policy_document" "github_deploy" {
       aws_instance.dashboard.arn,
       "arn:aws:ssm:${var.region}::document/AWS-RunShellScript"
     ]
+  }
+
+  # ssm:GetCommandInvocation 은 EC2/문서 ARN으로 리소스 범위를 제한하는 걸 지원하지
+  # 않는 액션이라(커맨드 실행 결과 자체는 ARN으로 식별되는 리소스가 아님), 위
+  # SendCommand 문과 같이 묶어서 인스턴스 ARN으로 제한하면 AccessDeniedException이
+  # 남. 이 액션만 따로 statement를 분리해서 "*"로 허용해야 한다.
+  statement {
+    actions   = ["ssm:GetCommandInvocation"]
+    resources = ["*"]
   }
 }
 
