@@ -54,6 +54,7 @@ class MappingTest(unittest.TestCase):
         e = mapping.finding_to_event(f)
         self.assertEqual(e["attacker_ip"], "203.0.113.9")
         self.assertEqual(e["attack_path"], ["k3s"])
+        self.assertEqual(e["scenario_type"], "port")
         self.assertTrue(e["auto_remediation"])
         self.assertEqual(e["status"], "승인 대기")
 
@@ -92,6 +93,13 @@ class WafTest(unittest.TestCase):
     def test_managed_rule_match_counts(self):
         e = waf.detect([rec("5.5.5.5", "/x", "", matched=["SQLi_BODY"])], "shop", 0, CFG)
         self.assertEqual(e[0]["title"].split(" (")[0], "SQL Injection 시도 탐지")
+        self.assertEqual(e[0]["scenario_type"], "sqli")
+
+    def test_admin_brute_force_gets_distinct_scenario_type(self):
+        """관리자 로그인 무차별 대입은 일반 brute 와 다른 scenario_type(brute_admin)을 써야 한다."""
+        many = [rec("6.6.6.6", "/login", method="POST") for _ in range(10)]
+        self.assertEqual(waf.detect(many, "admin", 0, CFG)[0]["scenario_type"], "brute_admin")
+        self.assertEqual(waf.detect(many, "shop", 0, CFG)[0]["scenario_type"], "brute")
 
     def test_plain_request_is_not_an_attack(self):
         """규칙 그룹을 거쳐 갔을 뿐 걸리지 않은 평범한 요청은 탐지하면 안 된다. (실제 오탐 회귀 테스트)"""

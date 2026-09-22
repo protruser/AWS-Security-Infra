@@ -88,6 +88,7 @@ def finding_to_event(f):
     return {
         "id": "sh-" + hashlib.sha1(f["Id"].encode()).hexdigest()[:32],
         "service": f.get("ProductName") or "Security Hub",
+        "scenario_type": kind,
         "severity": severity,
         "title": (f.get("Title") or sc["title"])[:255],
         "asset": ((resource.get("Type") or "") + " " + (resource.get("Id") or "").split("/")[-1]).strip()[:255] or None,

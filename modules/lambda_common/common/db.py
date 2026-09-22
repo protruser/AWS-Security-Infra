@@ -14,6 +14,7 @@ SCHEMA = [
     CREATE TABLE IF NOT EXISTS security_events (
         id                VARCHAR(255) PRIMARY KEY,
         service           VARCHAR(80) NOT NULL,
+        scenario_type     VARCHAR(80) NULL,
         severity          VARCHAR(20) NOT NULL,
         title             VARCHAR(255) NOT NULL,
         asset             VARCHAR(255) NULL,
@@ -35,7 +36,8 @@ SCHEMA = [
         INDEX idx_security_events_detected_at (detected_at),
         INDEX idx_security_events_status (status),
         INDEX idx_security_events_severity (severity),
-        INDEX idx_security_events_service (service)
+        INDEX idx_security_events_service (service),
+        INDEX idx_security_events_scenario_type (scenario_type)
     ) CHARACTER SET utf8mb4
     """,
     """
@@ -79,11 +81,12 @@ SCHEMA = [
 
 UPSERT_EVENT = """
 INSERT INTO security_events (
-  id, service, severity, title, asset, detected_at, status, recommendation,
+  id, service, scenario_type, severity, title, asset, detected_at, status, recommendation,
   auto_remediation, highlight_assets, attack_path, attacker_ip, request_url,
   rule_name, blocked, block_result, logs
-) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
 ON DUPLICATE KEY UPDATE
+  scenario_type=VALUES(scenario_type),
   severity=VALUES(severity), title=VALUES(title), asset=VALUES(asset),
   recommendation=VALUES(recommendation), auto_remediation=VALUES(auto_remediation),
   highlight_assets=VALUES(highlight_assets), attack_path=VALUES(attack_path),
@@ -143,7 +146,7 @@ def upsert_events(events):
         return 0
     rows = [
         (
-            e["id"], e["service"], e["severity"], e["title"][:255], e.get("asset"),
+            e["id"], e["service"], e.get("scenario_type"), e["severity"], e["title"][:255], e.get("asset"),
             e["detected_at"], e.get("status", "검토 필요"), e.get("recommendation"),
             bool(e.get("auto_remediation")),
             json.dumps(e.get("highlight_assets") or []),
