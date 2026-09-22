@@ -3,7 +3,7 @@ variable "region" { type = string }
 variable "server_name_prefix" { type = string }
 variable "mysql_image" { type = string }
 variable "k3s_channel" { type = string }
-variable "github_repository" { type = string }
+variable "github_repositories" { type = list(string) }
 variable "github_oidc_provider_arn" { type = string }
 
 variable "instance_types" {

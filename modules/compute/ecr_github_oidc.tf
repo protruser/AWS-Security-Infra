@@ -41,7 +41,7 @@ resource "aws_ecr_repository" "dashboard" {
 }
 
 data "aws_iam_policy_document" "github_oidc_assume" {
-  count = var.github_repository != "" && var.github_oidc_provider_arn != "" ? 1 : 0
+  count = length(var.github_repositories) > 0 && var.github_oidc_provider_arn != "" ? 1 : 0
 
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
@@ -57,23 +57,26 @@ data "aws_iam_policy_document" "github_oidc_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
+    # 리포지토리 여러 개를 동시에 신뢰해야 해서(service, dashboard, ...),
+    # sub 클레임 조건에 값을 여러 개 넣는다. StringEquals는 여러 값 중
+    # 하나라도 일치하면 통과한다(OR로 동작).
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:environment:production"]
+      values   = [for repo in var.github_repositories : "repo:${repo}:environment:production"]
     }
   }
 }
 
 resource "aws_iam_role" "github_deploy" {
-  count = var.github_repository != "" && var.github_oidc_provider_arn != "" ? 1 : 0
+  count = length(var.github_repositories) > 0 && var.github_oidc_provider_arn != "" ? 1 : 0
 
   name               = "${var.project}-github-deploy"
   assume_role_policy = data.aws_iam_policy_document.github_oidc_assume[0].json
 }
 
 data "aws_iam_policy_document" "github_deploy" {
-  count = var.github_repository != "" && var.github_oidc_provider_arn != "" ? 1 : 0
+  count = length(var.github_repositories) > 0 && var.github_oidc_provider_arn != "" ? 1 : 0
 
   statement {
     actions   = ["ecr:GetAuthorizationToken"]
@@ -119,7 +122,7 @@ data "aws_iam_policy_document" "github_deploy" {
 }
 
 resource "aws_iam_role_policy" "github_deploy" {
-  count = var.github_repository != "" && var.github_oidc_provider_arn != "" ? 1 : 0
+  count = length(var.github_repositories) > 0 && var.github_oidc_provider_arn != "" ? 1 : 0
 
   name   = "${var.project}-github-deploy"
   role   = aws_iam_role.github_deploy[0].id

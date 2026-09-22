@@ -42,7 +42,7 @@ module "compute" {
   instance_types           = var.instance_types
   mysql_image              = var.mysql_image
   k3s_channel              = var.k3s_channel
-  github_repository        = var.github_repository
+  github_repositories      = var.github_repositories
   github_oidc_provider_arn = var.github_oidc_provider_arn
 
   private_subnet_ids = module.network.private_subnet_ids

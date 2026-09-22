@@ -26,13 +26,13 @@
 
 EC2 5대를 만들었지만, **그 안에 진짜 앱이 올라간 것도 있고 아직 자리표시자(placeholder)뿐인 것도 있어요.**
 
-| #   | 서버        | 역할                                          | 지금 상태                                                                               |
-| --- | ----------- | --------------------------------------------- | --------------------------------------------------------------------------------------- |
-| ①   | k3s-nginx   | 원래 쇼핑몰 앱을 여기(쿠버네티스)에 올릴 계획 | 🟡 자리표시자 nginx pod만 떠 있음. shop-app EC2로 라우팅하는 설정 아직 없음             |
-| ②   | dashboard   | 보안관제 대시보드                             | ✅ **진짜 앱 운영 중** (React+Flask, Docker 컨테이너로 배포됨)                          |
-| ③   | shop-app    | 쇼핑몰 Flask 앱                               | 🟡 자리표시자 nginx만 떠 있음. `service` 레포 GitHub Actions로 배포 예정(아래 5번 참고) |
-| ③   | shop-db     | 쇼핑몰 MySQL                                  | ✅ 컨테이너 떠 있음 (아직 쇼핑몰 앱이 없어서 실사용 데이터는 없음)                      |
-| ④   | security-db | 보안탐지결과 MySQL                            | ✅ **실제로 탐지 데이터 쌓이는 중** (Lambda A/B가 계속 씀)                              |
+| #   | 서버        | 역할                                          | 지금 상태                                                                    |
+| --- | ----------- | --------------------------------------------- | ------------------------------------------------------------------------------ |
+| ①   | k3s-nginx   | 쇼핑몰 앞단 리버스 프록시(쿠버네티스)         | ✅ nginx가 shop-app EC2로 실제 프록시함 (`location /` → `http://shop-app:8443`) |
+| ②   | dashboard   | 보안관제 대시보드                             | ✅ **진짜 앱 운영 중** (React+Flask, GitHub Actions로 자동 배포 준비 완료)      |
+| ③   | shop-app    | 쇼핑몰 Flask 앱                               | ✅ **진짜 앱 운영 중** (`service` 레포 GitHub Actions로 자동 배포됨)            |
+| ③   | shop-db     | 쇼핑몰 MySQL                                  | ✅ 컨테이너 떠 있음, shop-app이 실제로 씀                                      |
+| ④   | security-db | 보안탐지결과 MySQL                            | ✅ **실제로 탐지 데이터 쌓이는 중** (Lambda A/B가 계속 씀)                      |
 
 **보안 서비스/탐지 파이프라인은 전부 실제로 동작 중**이에요 (GuardDuty, Inspector, Access
 Analyzer, Security Hub, WAF → Lambda A/B → `security_events` 테이블 → 대시보드 표시까지
@@ -40,12 +40,14 @@ end-to-end로 확인됨). 자세한 현황은 `docs/01_보안서비스_반영현
 
 **아직 안 된 것 (다음 할 일)**:
 
-- k3s 안의 nginx를 shop-app EC2로 프록시하도록 설정 (지금은 shop ALB로 접속해도 그냥 nginx
-  기본 페이지만 뜸)
-- `service` 레포 GitHub Actions로 shop-app 실제 배포 (OIDC/SSM 권한은 오늘 다 고쳐서 이제
-  될 거예요, 재실행 확인 필요)
+- dashboard GitHub Actions 워크플로(`.github/workflows/deploy-dashboard.yml`)를 `wonny`
+  브랜치에 추가하고, 레포 Variables 4개(`AWS_REGION`, `AWS_ROLE_ARN`,
+  `DASHBOARD_ECR_URI`, `DASHBOARD_INSTANCE_ID`) 등록 — infra 쪽(OIDC 신뢰정책, IAM
+  권한)은 이미 준비 끝남, 남은 건 dashboard 레포에서 직접 하는 부분뿐
 - Attack Lab(7개 시나리오 의도적으로 재현하는 기능)
-- dashboard 배포를 GitHub Actions로 자동화 (지금은 사람이 수동으로 SSM 통해 배포, 아래 4번 참고)
+- `dashboard/backend/tests/test_overview_metrics.py`가 실제 코드랑 시그니처가 안 맞아
+  깨져있음 (`FakeCursor.execute`가 `params`를 필수로 받는데 실제 호출은 인자 없이 호출함).
+  dashboard CI에 아직 못 넣은 이유이기도 함
 
 ---
 
@@ -54,8 +56,7 @@ end-to-end로 확인됨). 자세한 현황은 `docs/01_보안서비스_반영현
 ```text
 Internet
   │
-  ├─ WAF(shop)  → Shop ALB(80)  → ① k3s EC2:30443(NodePort) → ③ shop-app EC2:8443 → ③ shop-db EC2:3306
-  │                                  (지금은 nginx 자리표시자, ③까지 라우팅 설정 안 됨)
+  ├─ WAF(shop)  → Shop ALB(80)  → ① k3s nginx(30443, 리버스 프록시) → ③ shop-app EC2:8443 → ③ shop-db EC2:3306
   │
   └─ WAF(admin) → Admin ALB(80, 관리자 IP만 허용) → ② dashboard EC2:8443 → ④ security-db EC2:3306
 
@@ -134,8 +135,8 @@ AWS가 몇 분짜리 임시 자격증명을 빌려주는 방식이에요.
 **관련 코드**: `modules/compute/ecr_github_oidc.tf` 하나에 다 있어요 (IAM 역할, 신뢰정책,
 ECR/SSM 권한).
 
-**값 설정 위치**: `terraform.tfvars`(gitignore됨, git에 없음)의 `github_repository`,
-`github_oidc_provider_arn`.
+**값 설정 위치**: `terraform.tfvars`(gitignore됨, git에 없음)의 `github_repositories`
+(리스트, 레포 여러 개 동시에 등록 가능), `github_oidc_provider_arn`.
 
 **⚠️ 겪었던 함정 — 신뢰정책의 `sub` 조건값**:
 
@@ -146,10 +147,12 @@ GitHub OIDC 토큰의 `sub` 클레임이 단순히 `owner/repo` 형식이 아니
 repo:protruser@137254772/AWS-Security-Service@1378937222:environment:production
 ```
 
-`github_repository` 변수에 그냥 `"protruser/AWS-Security-Service"`만 넣으면 절대 매칭이
+`github_repositories`에 그냥 `"protruser/AWS-Security-Service"`만 넣으면 절대 매칭이
 안 돼서 `AssumeRoleWithWebIdentity`가 계속 거부돼요. **실제 값은 워크플로에 있는 "Inspect
 OIDC claims" 스텝을 한 번 실행해서 로그에 찍힌 `sub` 값을 그대로 복사**해야 해요. 지금은
-이미 맞는 값으로 설정돼 있어요.
+이미 맞는 값으로 설정돼 있어요. 레포/조직 숫자 ID만 필요하면 GitHub 공개 API로도 조회
+가능해요: `curl https://api.github.com/repos/<owner>/<repo>` (`id`가 레포 ID,
+`owner.id`가 조직/계정 ID).
 
 **⚠️ 겪었던 함정 2 — `ssm:GetCommandInvocation` 권한**:
 
@@ -158,9 +161,10 @@ ARN으로 식별되는 리소스가 아니라서). `ssm:SendCommand`랑 같은 s
 ARN으로 제한하면 `AccessDeniedException`이 나요 — **반드시 별도 statement로 분리하고
 `Resource = "*"`로 줘야 해요.** (지금 코드에 이미 반영돼 있음)
 
-**dashboard 레포도 GitHub Actions 쓰려면**: 지금 `github_repository`는 `service` 레포
-하나만 등록돼 있어요. dashboard도 쓰려면 신뢰정책에 dashboard 레포도 추가해야 해요 (여러
-레포 허용하려면 `ecr_github_oidc.tf`의 조건 로직을 리스트로 바꾸는 작업 필요).
+**여러 레포가 같은 역할을 같이 써요**: `github_repositories`는 리스트라서 `service`,
+`dashboard` 둘 다 등록돼 있어요 (`sub` 조건에 값을 여러 개 넣으면 AWS가 OR로 판단해서,
+그중 하나라도 일치하면 통과시켜요). 새 레포를 추가하고 싶으면 이 리스트에 그 레포의
+실제 `sub` 값만 하나 더 추가하고 apply하면 돼요 — 코드 구조를 다시 바꿀 필요는 없어요.
 
 ---
 
@@ -299,7 +303,7 @@ terraform apply review.tfplan
 ```
 
 `terraform.tfvars`에서 최소한 확인할 것: `admin_cidrs`(본인 공인 IP), `enable_security_services`,
-`github_repository`/`github_oidc_provider_arn`(GitHub Actions 쓸 레포만).
+`github_repositories`/`github_oidc_provider_arn`(GitHub Actions 쓸 레포만).
 
 주요 output:
 
