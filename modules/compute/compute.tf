@@ -25,12 +25,13 @@ resource "aws_instance" "k3s" {
   iam_instance_profile   = aws_iam_instance_profile.ec2["k3s"].name
 
   user_data = templatefile("${path.module}/user_data/k3s_nginx.sh.tftpl", {
-    docker_install    = local.docker_install
-    cw_agent_install  = local.cw_agent_install
-    placeholder_image = local.placeholder_image
-    extra_packages    = local.base_packages
-    k3s_channel       = var.k3s_channel
-    node_port         = 30443
+    docker_install     = local.docker_install
+    cw_agent_install   = local.cw_agent_install
+    placeholder_image  = local.placeholder_image
+    extra_packages     = local.base_packages
+    k3s_channel        = var.k3s_channel
+    node_port          = 30443
+    shop_app_private_ip = aws_instance.shop_app.private_ip
   })
   user_data_replace_on_change = true
 
@@ -54,6 +55,13 @@ resource "aws_instance" "k3s" {
   tags = {
     Name = "${var.server_name_prefix}-01-k3s-nginx"
     Role = "k3s-nginx"
+  }
+
+  # nginx가 shop-app EC2로 프록시하는 설정까지 이미 반영됐고 매번 재구성하려면
+  # 번거로우니(nginx 안에서 kubectl로 이미 살아있는 배포임), user_data가 바뀌어도
+  # 이 서버는 재생성하지 않는다.
+  lifecycle {
+    ignore_changes = [user_data]
   }
 }
 

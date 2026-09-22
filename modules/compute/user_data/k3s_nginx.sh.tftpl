@@ -51,8 +51,18 @@ data:
       ssl_certificate_key /etc/nginx/certs/tls.key;
       default_type text/plain;
 
+      # ALB 헬스체크는 이 nginx 자체가 응답한다 (뒤 서버 상태와 무관하게 항상 살아있음).
       location = /health { return 200 'ok'; }
-      location /          { return 200 'placeholder: nginx (k3s)'; }
+
+      # 그 외 모든 요청은 shop-app EC2로 그대로 전달한다(리버스 프록시).
+      # shop-app 컨테이너는 TLS 없이 평범한 HTTP로 8443을 서빙한다.
+      location / {
+        proxy_pass http://${shop_app_private_ip}:8443;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
     }
 ---
 apiVersion: apps/v1

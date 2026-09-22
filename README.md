@@ -10,11 +10,11 @@
 
 ## 1. 이 프로젝트는 레포 3개로 나뉘어 있어요
 
-| 레포 | GitHub | 역할 | 브랜치 |
-|---|---|---|---|
-| **infra** | `protruser/AWS-Security-Infra` | 이 레포. Terraform으로 AWS 인프라 전체(네트워크/서버/보안서비스/Lambda) 생성 | `gyu` (작업 브랜치) |
-| **dashboard** | `protruser/AWS-security` | 보안관제 대시보드(React + Flask). 대시보드 EC2에 배포됨 | `wonny` (배포에 쓰는 최신 브랜치, `gyu`는 안 씀) |
-| **service** | `protruser/AWS-Security-Service` | 일부러 취약하게 만든 쇼핑몰 앱(Flask). shop-app EC2에 배포 예정 | `vuln_service` (실제 코드는 여기, `main`은 거의 비어있음) |
+| 레포          | GitHub                           | 역할                                                                         | 브랜치                                                    |
+| ------------- | -------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------- |
+| **infra**     | `protruser/AWS-Security-Infra`   | 이 레포. Terraform으로 AWS 인프라 전체(네트워크/서버/보안서비스/Lambda) 생성 | `gyu` (작업 브랜치)                                       |
+| **dashboard** | `protruser/AWS-security`         | 보안관제 대시보드(React + Flask). 대시보드 EC2에 배포됨                      | `wonny` (배포에 쓰는 최신 브랜치, `gyu`는 안 씀)          |
+| **service**   | `protruser/AWS-Security-Service` | 일부러 취약하게 만든 쇼핑몰 앱(Flask). shop-app EC2에 배포 예정              | `vuln_service` (실제 코드는 여기, `main`은 거의 비어있음) |
 
 세 레포가 배포되는 대상은 전부 **이 `infra` 레포가 Terraform으로 미리 만들어둔 EC2**예요.
 즉 다른 두 레포는 "무슨 서버에 뭘 올릴지"를 여기(infra)가 먼저 준비해두고, 그 위에
@@ -26,19 +26,20 @@
 
 EC2 5대를 만들었지만, **그 안에 진짜 앱이 올라간 것도 있고 아직 자리표시자(placeholder)뿐인 것도 있어요.**
 
-| # | 서버 | 역할 | 지금 상태 |
-|---|---|---|---|
-| ① | k3s-nginx | 원래 쇼핑몰 앱을 여기(쿠버네티스)에 올릴 계획 | 🟡 자리표시자 nginx pod만 떠 있음. shop-app EC2로 라우팅하는 설정 아직 없음 |
-| ② | dashboard | 보안관제 대시보드 | ✅ **진짜 앱 운영 중** (React+Flask, Docker 컨테이너로 배포됨) |
-| ③ | shop-app | 쇼핑몰 Flask 앱 | 🟡 자리표시자 nginx만 떠 있음. `service` 레포 GitHub Actions로 배포 예정(아래 5번 참고) |
-| ③ | shop-db | 쇼핑몰 MySQL | ✅ 컨테이너 떠 있음 (아직 쇼핑몰 앱이 없어서 실사용 데이터는 없음) |
-| ④ | security-db | 보안탐지결과 MySQL | ✅ **실제로 탐지 데이터 쌓이는 중** (Lambda A/B가 계속 씀) |
+| #   | 서버        | 역할                                          | 지금 상태                                                                               |
+| --- | ----------- | --------------------------------------------- | --------------------------------------------------------------------------------------- |
+| ①   | k3s-nginx   | 원래 쇼핑몰 앱을 여기(쿠버네티스)에 올릴 계획 | 🟡 자리표시자 nginx pod만 떠 있음. shop-app EC2로 라우팅하는 설정 아직 없음             |
+| ②   | dashboard   | 보안관제 대시보드                             | ✅ **진짜 앱 운영 중** (React+Flask, Docker 컨테이너로 배포됨)                          |
+| ③   | shop-app    | 쇼핑몰 Flask 앱                               | 🟡 자리표시자 nginx만 떠 있음. `service` 레포 GitHub Actions로 배포 예정(아래 5번 참고) |
+| ③   | shop-db     | 쇼핑몰 MySQL                                  | ✅ 컨테이너 떠 있음 (아직 쇼핑몰 앱이 없어서 실사용 데이터는 없음)                      |
+| ④   | security-db | 보안탐지결과 MySQL                            | ✅ **실제로 탐지 데이터 쌓이는 중** (Lambda A/B가 계속 씀)                              |
 
 **보안 서비스/탐지 파이프라인은 전부 실제로 동작 중**이에요 (GuardDuty, Inspector, Access
 Analyzer, Security Hub, WAF → Lambda A/B → `security_events` 테이블 → 대시보드 표시까지
 end-to-end로 확인됨). 자세한 현황은 `docs/01_보안서비스_반영현황.md` 참고하세요.
 
 **아직 안 된 것 (다음 할 일)**:
+
 - k3s 안의 nginx를 shop-app EC2로 프록시하도록 설정 (지금은 shop ALB로 접속해도 그냥 nginx
   기본 페이지만 뜸)
 - `service` 레포 GitHub Actions로 shop-app 실제 배포 (OIDC/SSM 권한은 오늘 다 고쳐서 이제
@@ -244,18 +245,18 @@ Secrets Manager 값을 JSON으로 조회하면 특수문자가 `<`(=`<`) 같은 
 
 루트(`main.tf`)는 모듈을 연결만 하고, 리소스는 `modules/` 아래에 있어요.
 
-| 경로 | 내용 |
-|---|---|
-| `modules/network` | VPC / Subnet / NAT / Security Group / VPC Endpoint |
-| `modules/security` | KMS / Secrets Manager / S3 로그 / CloudTrail / Flow Logs / GuardDuty / Inspector / Access Analyzer / Security Hub / WAF 로그 그룹 |
-| `modules/compute` | EC2 5대 / IAM / ECR / GitHub OIDC (`user_data/` 포함) |
-| `modules/edge` | ALB / WAF / ACM / Route53 |
-| `modules/lambda_a` | Security Hub finding → `security_events` (이벤트 기반) |
-| `modules/lambda_b` | WAF 로그 분석 → `security_events` (5분마다) |
-| `modules/lambda_c` | CloudWatch 지표 → `service_metrics` (5분마다, k3s/shop-app/shop-db 3대만) |
-| `modules/lambda_remediation` | 대시보드 승인 → WAF 차단/SSM 재시작/Access Key 비활성화 |
-| `modules/lambda_common` | Lambda A/B/C/Remediation이 같이 쓰는 DB·매핑 코드, 단위 테스트 |
-| `docs/` | 실행방법(`00_*`), 보안서비스 반영현황(`01_*`), 아키텍처 범위, KMS 수정 이력 |
+| 경로                         | 내용                                                                                                                              |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `modules/network`            | VPC / Subnet / NAT / Security Group / VPC Endpoint                                                                                |
+| `modules/security`           | KMS / Secrets Manager / S3 로그 / CloudTrail / Flow Logs / GuardDuty / Inspector / Access Analyzer / Security Hub / WAF 로그 그룹 |
+| `modules/compute`            | EC2 5대 / IAM / ECR / GitHub OIDC (`user_data/` 포함)                                                                             |
+| `modules/edge`               | ALB / WAF / ACM / Route53                                                                                                         |
+| `modules/lambda_a`           | Security Hub finding → `security_events` (이벤트 기반)                                                                            |
+| `modules/lambda_b`           | WAF 로그 분석 → `security_events` (5분마다)                                                                                       |
+| `modules/lambda_c`           | CloudWatch 지표 → `service_metrics` (5분마다, k3s/shop-app/shop-db 3대만)                                                         |
+| `modules/lambda_remediation` | 대시보드 승인 → WAF 차단/SSM 재시작/Access Key 비활성화                                                                           |
+| `modules/lambda_common`      | Lambda A/B/C/Remediation이 같이 쓰는 DB·매핑 코드, 단위 테스트                                                                    |
+| `docs/`                      | 실행방법(`00_*`), 보안서비스 반영현황(`01_*`), 아키텍처 범위, KMS 수정 이력                                                       |
 
 Lambda 4개는 `terraform plan` 전에 각각 `src/build.sh`로 패키지를 먼저 만들어야 해요:
 
@@ -273,11 +274,11 @@ terraform plan -out=review.tfplan
 
 ## 9. Security MySQL(`security-db`) 테이블 구조
 
-| 테이블 | 용도 |
-|---|---|
-| `security_events` | 탐지된 보안 이벤트. `scenario_type`은 7개 값 중 하나로 고정: `sqli, dir, brute, cred, vuln, xss, port` |
-| `remediation_history` | 이벤트별 조치 이력(누가/언제/성공여부). `security_events.id`를 외래키로 참조 |
-| `service_metrics` | CPU/메모리/지연시간/에러율 등 운영 지표 이력(3일 보관). k3s/shop-app/shop-db만 대상 |
+| 테이블                | 용도                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------------ |
+| `security_events`     | 탐지된 보안 이벤트. `scenario_type`은 7개 값 중 하나로 고정: `sqli, dir, brute, cred, vuln, xss, port` |
+| `remediation_history` | 이벤트별 조치 이력(누가/언제/성공여부). `security_events.id`를 외래키로 참조                           |
+| `service_metrics`     | CPU/메모리/지연시간/에러율 등 운영 지표 이력(3일 보관). k3s/shop-app/shop-db만 대상                    |
 
 스키마는 `modules/lambda_common/common/db.py`에 있고, `CREATE TABLE IF NOT EXISTS`라서
 어느 Lambda가 먼저 실행돼도 자동으로 만들어져요.
