@@ -99,6 +99,14 @@ resource "aws_instance" "dashboard" {
     Name = "${var.server_name_prefix}-02-dashboard"
     Role = "dashboard"
   }
+
+  # 실제 대시보드 컨테이너가 SSM으로 수동 배포되어 이미 떠 있는 서버라서,
+  # user_data(자리표시자 nginx 설치 스크립트)가 바뀌어도 재생성하지 않는다.
+  # 이게 없으면 apply 할 때마다 이 서버가 교체되면서 실제 배포한 대시보드가
+  # 자리표시자로 초기화된다.
+  lifecycle {
+    ignore_changes = [user_data]
+  }
 }
 
 resource "aws_instance" "shop_app" {
