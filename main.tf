@@ -30,7 +30,6 @@ module "security" {
   shop_db_private_ip       = module.compute.shop_db_private_ip
   security_db_private_ip   = module.compute.security_db_private_ip
   enable_security_services = var.enable_security_services
-  notification_email       = var.notification_email
   force_destroy_buckets    = var.force_destroy_buckets
 }
 

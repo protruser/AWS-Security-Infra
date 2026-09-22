@@ -49,12 +49,6 @@ variable "admin_cidrs" {
   description = "관리자 대시보드 접근 허용 공인 IP/CIDR"
 }
 
-variable "notification_email" {
-  type        = string
-  description = "Security Hub 알림을 받을 이메일. 비우면 구독을 생성하지 않음."
-  default     = ""
-}
-
 variable "enable_custom_domain" {
   type        = bool
   description = "Route53 + ACM + HTTPS 사용 여부"
