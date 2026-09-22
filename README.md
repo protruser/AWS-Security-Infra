@@ -29,7 +29,7 @@ EC2 5대를 만들었지만, **그 안에 진짜 앱이 올라간 것도 있고 
 | #   | 서버        | 역할                                          | 지금 상태                                                                    |
 | --- | ----------- | --------------------------------------------- | ------------------------------------------------------------------------------ |
 | ①   | k3s-nginx   | 쇼핑몰 앞단 리버스 프록시(쿠버네티스)         | ✅ nginx가 shop-app EC2로 실제 프록시함 (`location /` → `http://shop-app:8443`) |
-| ②   | dashboard   | 보안관제 대시보드                             | ✅ **진짜 앱 운영 중** (React+Flask, GitHub Actions로 자동 배포 준비 완료)      |
+| ②   | dashboard   | 보안관제 대시보드                             | ✅ **진짜 앱 운영 중**, GitHub Actions로 자동 배포도 완료 (ECR 경유)            |
 | ③   | shop-app    | 쇼핑몰 Flask 앱                               | ✅ **진짜 앱 운영 중** (`service` 레포 GitHub Actions로 자동 배포됨)            |
 | ③   | shop-db     | 쇼핑몰 MySQL                                  | ✅ 컨테이너 떠 있음, shop-app이 실제로 씀                                      |
 | ④   | security-db | 보안탐지결과 MySQL                            | ✅ **실제로 탐지 데이터 쌓이는 중** (Lambda A/B가 계속 씀)                      |
@@ -40,10 +40,6 @@ end-to-end로 확인됨). 자세한 현황은 `docs/01_보안서비스_반영현
 
 **아직 안 된 것 (다음 할 일)**:
 
-- dashboard GitHub Actions 워크플로(`.github/workflows/deploy-dashboard.yml`)를 `wonny`
-  브랜치에 추가하고, 레포 Variables 4개(`AWS_REGION`, `AWS_ROLE_ARN`,
-  `DASHBOARD_ECR_URI`, `DASHBOARD_INSTANCE_ID`) 등록 — infra 쪽(OIDC 신뢰정책, IAM
-  권한)은 이미 준비 끝남, 남은 건 dashboard 레포에서 직접 하는 부분뿐
 - Attack Lab(7개 시나리오 의도적으로 재현하는 기능)
 - `dashboard/backend/tests/test_overview_metrics.py`가 실제 코드랑 시그니처가 안 맞아
   깨져있음 (`FakeCursor.execute`가 `params`를 필수로 받는데 실제 호출은 인자 없이 호출함).
@@ -78,13 +74,13 @@ shop-app/shop-db 둘 다 여기, ④10.0.4.0/24), 퍼블릭 서브넷 2개(ALB�
 
 ## 4. Docker 이미지는 언제 어떻게 만들어지나요
 
-**이미지 만드는 방법이 지금 두 앱이 서로 달라요** — 하나는 자동화(GitHub Actions), 하나는
-아직 수동이에요.
+**이제 둘 다 GitHub Actions로 자동 빌드/배포돼요** (service, dashboard 순서로 구축).
+패턴은 거의 동일해요: 코드 push → OIDC로 AWS 로그인 → Docker 빌드 → ECR push → SSM으로
+대상 EC2에서 pull & 컨테이너 교체 → 헬스체크 실패시 자동 롤백.
 
-### service(쇼핑몰) — GitHub Actions로 자동 빌드/배포 (정석)
+### service(쇼핑몰) — `.github/workflows/deploy-shop-app.yml`
 
-`service` 레포 `.github/workflows/deploy-shop-app.yml`이 `vuln_service` 브랜치에 push되면
-자동으로 실행돼요:
+`vuln_service` 브랜치에 push되면 자동으로 실행돼요:
 
 ```
 git push (vuln_service)
@@ -98,24 +94,30 @@ git push (vuln_service)
    → 헬스체크 실패하면 자동으로 이전 이미지로 롤백 (deploy/shop-app/deploy.sh)
 ```
 
-이게 **원래 의도된 정상 흐름**이에요. Dockerfile은 `service` 레포 루트에 딱 1개 있어요.
+Dockerfile은 `service` 레포 루트에 딱 1개 있어요.
 
-### dashboard — 지금은 사람이 수동으로 (임시)
+### dashboard — `.github/workflows/deploy-dashboard.yml`
 
-dashboard는 아직 GitHub Actions가 없어요. 로컬에 Docker가 없는 상황이라, 지금까지는:
+`wonny` 브랜치에 push되면 자동으로 실행돼요:
 
 ```
-(로컬) git checkout wonny 브랜치
-   → 소스를 tar로 압축해서 S3에 업로드
-   → SSM으로 dashboard EC2한테 "S3에서 받아서 네가 직접 docker build 해" 시킴
-   → dashboard EC2 안에서 이미지 빌드됨 (ECR 안 씀, EC2 로컬에만 이미지 있음)
-   → 기존 컨테이너 내리고 새 이미지로 교체
+git push (wonny)
+   → GitHub Actions 실행
+   → npm ci / typecheck / build (프론트 정적 검사)
+   → OIDC로 AWS 로그인 (wonny-sec-github-deploy 역할 - service와 같은 역할 공유)
+   → docker build (dashboard 레포의 Dockerfile 사용, 2단계 빌드: node로 React 빌드 →
+     그 결과물을 Flask가 static/으로 같이 서빙)
+   → ECR에 push (796897109622.dkr.ecr.ap-northeast-2.amazonaws.com/wonny-sec/dashboard:<커밋SHA>)
+   → SSM으로 dashboard EC2(i-020e398fff4b74ff3)에 배포 명령 (deploy/dashboard/deploy.sh)
+   → 헬스체크 실패하면 자동으로 이전 이미지로 롤백
 ```
 
-Dockerfile은 `dashboard` 레포(`wonny` 브랜치) 루트에 딱 1개 있어요 (2단계 빌드: node로
-React 빌드 → 그 결과물을 Flask가 `static/`으로 같이 서빙). **이 방식은 임시방편**이에요 —
-나중에 dashboard도 `service`처럼 GitHub Actions로 옮기는 게 맞아요 (ECR 레포
-`wonny-sec/dashboard`는 이미 만들어져 있고 비어있는 상태).
+`.env`(관리자 비밀번호, OpenAI 키 등)는 Secrets Manager에서 새로 안 만들고 EC2의
+`/opt/dashboard/app.env`에 이미 있는 값을 그대로 재사용해요 — service처럼 배포 스크립트가
+매번 Secrets Manager를 조회하지 않는 게 유일한 차이예요.
+
+예전에는(2026-09-22 오전까지) 로컬에 Docker가 없어서 소스를 S3로 올리고 SSM으로 EC2가
+직접 빌드하는 임시방편을 썼었는데, 이제는 필요 없어요 — 저 GitHub Actions 경로만 쓰면 돼요.
 
 ### 공통으로 알아둘 것
 
