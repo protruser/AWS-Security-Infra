@@ -61,23 +61,30 @@ SCHEMA = [
     """,
     """
     CREATE TABLE IF NOT EXISTS service_metrics (
-        server           VARCHAR(40) PRIMARY KEY,
-        display_name     VARCHAR(80) NOT NULL,
-        status           VARCHAR(20) NOT NULL DEFAULT 'unknown',
-        cpu_percent      DECIMAL(5,2) NULL,
-        memory_percent   DECIMAL(5,2) NULL,
-        request_count    INT NULL,
-        avg_latency_ms   DECIMAL(8,2) NULL,
+        id                 BIGINT AUTO_INCREMENT PRIMARY KEY,
+        server             VARCHAR(40) NOT NULL,
+        display_name       VARCHAR(80) NOT NULL,
+        status             VARCHAR(20) NOT NULL DEFAULT 'unknown',
+        cpu_percent        DECIMAL(5,2) NULL,
+        memory_percent     DECIMAL(5,2) NULL,
+        request_count      INT NULL,
+        avg_latency_ms     DECIMAL(8,2) NULL,
         error_rate_percent DECIMAL(5,2) NULL,
-        healthy_targets  INT NULL,
-        unhealthy_targets INT NULL,
-        window_start     DATETIME NULL,
-        window_end       DATETIME NULL,
-        updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-                                          ON UPDATE CURRENT_TIMESTAMP
+        healthy_targets    INT NULL,
+        unhealthy_targets  INT NULL,
+        window_start       DATETIME NOT NULL,
+        window_end         DATETIME NOT NULL,
+        created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        -- 서버 1대의 같은 5분 구간은 한 행만 (재시도해도 중복 안 됨). 이력으로 계속 쌓인다.
+        UNIQUE KEY uq_service_metrics_point (server, window_start),
+        INDEX idx_service_metrics_window_end (window_end),
+        INDEX idx_service_metrics_server_window (server, window_end)
     ) CHARACTER SET utf8mb4
     """,
 ]
+
+# 지표 이력을 이 기간보다 오래 보관하지 않는다 (표가 무한히 커지지 않도록).
+METRICS_RETENTION_DAYS = 3
 
 UPSERT_EVENT = """
 INSERT INTO security_events (
@@ -164,24 +171,29 @@ def upsert_events(events):
     return len(rows)
 
 
-UPSERT_METRIC = """
+INSERT_METRIC = """
 INSERT INTO service_metrics (
   server, display_name, status, cpu_percent, memory_percent, request_count,
   avg_latency_ms, error_rate_percent, healthy_targets, unhealthy_targets,
   window_start, window_end
 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+-- 같은 (server, window_start) 로 재시도(같은 5분 구간)가 와도 값만 최신으로 덮어쓰고 새 행을 만들지 않는다.
 ON DUPLICATE KEY UPDATE
   display_name=VALUES(display_name), status=VALUES(status),
   cpu_percent=VALUES(cpu_percent), memory_percent=VALUES(memory_percent),
   request_count=VALUES(request_count), avg_latency_ms=VALUES(avg_latency_ms),
   error_rate_percent=VALUES(error_rate_percent),
   healthy_targets=VALUES(healthy_targets), unhealthy_targets=VALUES(unhealthy_targets),
-  window_start=VALUES(window_start), window_end=VALUES(window_end)
+  window_end=VALUES(window_end)
 """
 
 
 def upsert_service_metrics(rows):
-    """rows: server(고정 키)당 최신 상태 1건. 표에는 서버 수만큼(5행)만 남는다(이력 아님)."""
+    """rows: 이번 5분 구간에 서버별로 측정한 값. 구간마다 이력으로 쌓인다(스냅샷이 아님).
+
+    호출마다 보관 기간(METRICS_RETENTION_DAYS)보다 오래된 행을 함께 정리해,
+    별도 정리 작업 없이도 표가 계속 커지지 않게 한다.
+    """
     if not rows:
         return 0
     values = [
@@ -194,6 +206,11 @@ def upsert_service_metrics(rows):
         )
         for r in rows
     ]
-    with get_conn().cursor() as cur:
-        cur.executemany(UPSERT_METRIC, values)
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.executemany(INSERT_METRIC, values)
+        cur.execute(
+            "DELETE FROM service_metrics WHERE window_end < UTC_TIMESTAMP() - INTERVAL %s DAY",
+            (METRICS_RETENTION_DAYS,),
+        )
     return len(values)

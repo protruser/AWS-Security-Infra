@@ -70,6 +70,28 @@ class MappingTest(unittest.TestCase):
         self.assertEqual(mapping.finding_to_event(finding("Inspector", "x", "AwsEcrContainerImage"))["highlight_assets"][0], "ecr")
         self.assertIn("s3Logs", mapping.finding_to_event(finding("IAM Access Analyzer", "x", "AwsS3Bucket"))["highlight_assets"])
 
+    def test_inspector_ecr_is_vuln_but_ec2_is_generic(self):
+        """5번 시나리오(취약 컨테이너 이미지)는 ECR 이미지 취약점만 해당한다.
+        EC2 패키지 취약점까지 vuln 으로 섞이면 화면 필터에서 시나리오 5로 잘못 집계된다."""
+        ecr = mapping.finding_to_event(finding("Inspector", "x", "AwsEcrContainerImage"))
+        ec2 = mapping.finding_to_event(finding("Inspector", "x", "AwsEc2Instance"))
+        self.assertEqual(ecr["scenario_type"], "vuln")
+        self.assertEqual(ec2["scenario_type"], "generic")
+
+    def test_seven_scenarios_filter_matches_project_list(self):
+        """대시보드가 최종적으로 필터링할 7개 값과 우리가 실제로 만드는 값이 어긋나지 않는지 확인."""
+        SEVEN = {"sqli", "dir", "brute", "cred", "vuln", "xss", "port"}
+        port = mapping.finding_to_event(finding(
+            "GuardDuty", "TTPs/Discovery/Recon:EC2-Portscan",
+            Action={"PortProbeAction": {"PortProbeDetails": [{"RemoteIpDetails": {"IpAddressV4": "203.0.113.9"}}]}}))
+        cred = mapping.finding_to_event(finding(
+            "GuardDuty", "UnauthorizedAccess:IAMUser/InstanceCredentialExfiltration"))
+        vuln = mapping.finding_to_event(finding("Inspector", "x", "AwsEcrContainerImage"))
+        self.assertTrue({port["scenario_type"], cred["scenario_type"], vuln["scenario_type"]} <= SEVEN)
+        # s3/generic 은 7개 밖이라 화면 필터에서 일부러 빠져야 한다(오류 아님).
+        s3 = mapping.finding_to_event(finding("IAM Access Analyzer", "x", "AwsS3Bucket"))
+        self.assertNotIn(s3["scenario_type"], SEVEN)
+
     def test_skips_passed_and_archived(self):
         self.assertIsNone(mapping.finding_to_event(finding("Security Hub", "x", Compliance={"Status": "PASSED"})))
         self.assertIsNone(mapping.finding_to_event(finding("GuardDuty", "x", RecordState="ARCHIVED")))
@@ -95,11 +117,18 @@ class WafTest(unittest.TestCase):
         self.assertEqual(e[0]["title"].split(" (")[0], "SQL Injection 시도 탐지")
         self.assertEqual(e[0]["scenario_type"], "sqli")
 
-    def test_admin_brute_force_gets_distinct_scenario_type(self):
-        """관리자 로그인 무차별 대입은 일반 brute 와 다른 scenario_type(brute_admin)을 써야 한다."""
+    def test_admin_brute_force_scenario_type_stays_canonical(self):
+        """scenario_type 은 화면 필터가 쓰는 7개 값 중 하나(brute)로 고정돼야 한다.
+        관리자/쇼핑몰 구분(brute_admin)은 highlight_assets 조회에만 내부적으로 쓰이고
+        DB에 저장되는 scenario_type 자체를 바꾸면 안 된다 (안 그러면 화면 필터에서 빠진다)."""
         many = [rec("6.6.6.6", "/login", method="POST") for _ in range(10)]
-        self.assertEqual(waf.detect(many, "admin", 0, CFG)[0]["scenario_type"], "brute_admin")
-        self.assertEqual(waf.detect(many, "shop", 0, CFG)[0]["scenario_type"], "brute")
+        admin_ev = waf.detect(many, "admin", 0, CFG)[0]
+        shop_ev = waf.detect(many, "shop", 0, CFG)[0]
+        self.assertEqual(admin_ev["scenario_type"], "brute")
+        self.assertEqual(shop_ev["scenario_type"], "brute")
+        # 맵 강조(자산 경로)는 여전히 관리자/쇼핑몰이 달라야 한다.
+        self.assertIn("adminWAF", admin_ev["highlight_assets"])
+        self.assertNotIn("adminWAF", shop_ev["highlight_assets"])
 
     def test_plain_request_is_not_an_attack(self):
         """규칙 그룹을 거쳐 갔을 뿐 걸리지 않은 평범한 요청은 탐지하면 안 된다. (실제 오탐 회귀 테스트)"""

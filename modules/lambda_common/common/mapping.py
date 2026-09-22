@@ -63,7 +63,9 @@ def classify(f):
             return "cred"
         return "generic"
     if "inspector" in product:
-        return "vuln"
+        # 5번 시나리오(취약 컨테이너 이미지)는 ECR 이미지 취약점만 해당한다.
+        # EC2 인스턴스 패키지 취약점은 7개 시나리오 밖이라 generic으로 둔다.
+        return "vuln" if "Ecr" in rtype else "generic"
     if "analyzer" in product:
         return "s3" if "S3" in rtype else "generic"
     return "generic"

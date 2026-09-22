@@ -82,8 +82,10 @@ def _severity(kind, count, cfg):
 
 
 def _to_event(kind, ip, recs, source, window_start, cfg):
-    scenario_type = "brute_admin" if (kind == "brute" and source == "admin") else kind
-    scenario = SCENARIOS[scenario_type]
+    # brute_admin 은 맵 강조(관리자 경로 표시)를 위한 조회 키일 뿐이다.
+    # scenario_type 은 화면 필터가 쓰는 7개 시나리오 값(brute)으로 고정한다.
+    lookup_key = "brute_admin" if (kind == "brute" and source == "admin") else kind
+    scenario = SCENARIOS[lookup_key]
     blocked_n = sum(1 for r in recs if r.get("action") == "BLOCK")
     if blocked_n == len(recs):
         result, status = "성공", "자동 완료"           # WAF 가 이미 전부 막았다
@@ -101,7 +103,7 @@ def _to_event(kind, ip, recs, source, window_start, cfg):
     return {
         "id": key if len(key) < 250 else "waf-" + hashlib.sha1(key.encode()).hexdigest(),
         "service": "AWS WAF",
-        "scenario_type": scenario_type,
+        "scenario_type": kind,
         "severity": _severity(kind, len(recs), cfg),
         "title": f"{scenario['title']} ({len(recs)}건)",
         "asset": "Admin ALB / Dashboard" if source == "admin" else "Shop ALB / Flask App",
