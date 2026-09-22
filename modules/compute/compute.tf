@@ -158,6 +158,12 @@ resource "aws_instance" "shop_app" {
     Name = "${var.server_name_prefix}-03-shop-app"
     Role = "shop-app"
   }
+
+  # 이제 GitHub Actions가 실제 쇼핑몰 컨테이너를 이 서버에 배포하고 있어서,
+  # user_data가 바뀌어도 이 서버는 재생성하지 않는다 (다른 EC2들과 동일).
+  lifecycle {
+    ignore_changes = [user_data]
+  }
 }
 
 # DB 서버는 Secrets Manager 의 접속 정보로 MySQL 컨테이너를 만든다.
