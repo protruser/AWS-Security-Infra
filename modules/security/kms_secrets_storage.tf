@@ -55,24 +55,6 @@ data "aws_iam_policy_document" "security_kms" {
     }
   }
 
-  # 암호화된 SNS Topic으로 EventBridge가 알림을 발행할 때 필요한 권한
-  statement {
-    sid    = "AllowEventBridgeForEncryptedSNS"
-    effect = "Allow"
-
-    principals {
-      type        = "Service"
-      identifiers = ["events.amazonaws.com"]
-    }
-
-    actions = [
-      "kms:Decrypt",
-      "kms:GenerateDataKey"
-    ]
-
-    resources = ["*"]
-  }
-
   # S3 Bucket Key + SSE-KMS 환경에서 CloudTrail 로그 암호화 허용
   statement {
     sid    = "AllowCloudTrailEncryptLogs"

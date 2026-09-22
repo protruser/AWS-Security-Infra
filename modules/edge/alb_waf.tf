@@ -53,8 +53,8 @@ resource "aws_lb_target_group" "admin" {
   vpc_id   = var.vpc_id
 
   health_check {
-    enabled             = true
-    protocol            = "HTTP"
+    enabled  = true
+    protocol = "HTTP"
     # Flask 앱의 실제 헬스체크 라우트는 /api/health 뿐이다 (옛 nginx
     # 플레이스홀더의 /health 를 그대로 쓰면 404로 계속 unhealthy 처리됨).
     path                = "/api/health"

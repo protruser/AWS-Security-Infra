@@ -85,7 +85,7 @@ resource "aws_lambda_function" "lambda_a" {
   ]
 }
 
-# 기존 Security Hub 규칙(securityhub_findings)에 Lambda A 를 두 번째 타깃으로 추가한다. (SNS 알림은 그대로 유지)
+# 기존 Security Hub 규칙(securityhub_findings)에 Lambda A 를 타깃으로 추가한다.
 resource "aws_cloudwatch_event_target" "securityhub_to_lambda_a" {
   count = var.enable_security_services ? 1 : 0
 
