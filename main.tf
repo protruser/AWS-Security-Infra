@@ -118,12 +118,15 @@ module "lambda_c" {
   db_secret_arn     = module.security.security_db_secret_arn
   kms_key_arn       = module.security.security_kms_key_arn
 
-  instance_ids = module.compute.instance_ids
+  # dashboard/security_db는 지표 수집 대상에서 제외 (k3s/shop_app/shop_db 3대만)
+  instance_ids = {
+    k3s      = module.compute.instance_ids["k3s"]
+    shop_app = module.compute.instance_ids["shop_app"]
+    shop_db  = module.compute.instance_ids["shop_db"]
+  }
 
-  shop_lb_arn_suffix  = module.edge.shop_lb_arn_suffix
-  shop_tg_arn_suffix  = module.edge.shop_tg_arn_suffix
-  admin_lb_arn_suffix = module.edge.admin_lb_arn_suffix
-  admin_tg_arn_suffix = module.edge.admin_tg_arn_suffix
+  shop_lb_arn_suffix = module.edge.shop_lb_arn_suffix
+  shop_tg_arn_suffix = module.edge.shop_tg_arn_suffix
 }
 
 module "lambda_remediation" {

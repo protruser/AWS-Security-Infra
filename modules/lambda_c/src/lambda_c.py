@@ -21,7 +21,6 @@ def lambda_handler(event, _context):
     instance_ids = json.loads(os.environ["INSTANCE_IDS"])
     alb_servers = {
         "k3s": (os.environ["SHOP_LB_ARN_SUFFIX"], os.environ["SHOP_TG_ARN_SUFFIX"]),
-        "dashboard": (os.environ["ADMIN_LB_ARN_SUFFIX"], os.environ["ADMIN_TG_ARN_SUFFIX"]),
     }
 
     end = int(time.time()) // metrics.WINDOW * metrics.WINDOW

@@ -159,15 +159,16 @@ class WafTest(unittest.TestCase):
 
 
 class LambdaCTest(unittest.TestCase):
-    INSTANCE_IDS = {"k3s": "i-k3s", "dashboard": "i-dash", "shop_app": "i-app", "shop_db": "i-sdb", "security_db": "i-secdb"}
-    ALB_SERVERS = {"k3s": ("lb-shop", "tg-shop"), "dashboard": ("lb-admin", "tg-admin")}
+    # dashboard/security_db는 지표 수집 대상에서 제외됨 (k3s/shop_app/shop_db 3대만)
+    INSTANCE_IDS = {"k3s": "i-k3s", "shop_app": "i-app", "shop_db": "i-sdb"}
+    ALB_SERVERS = {"k3s": ("lb-shop", "tg-shop")}
     START = dt.datetime(2026, 9, 22, 3, 0, tzinfo=dt.timezone.utc)
     END = dt.datetime(2026, 9, 22, 3, 5, tzinfo=dt.timezone.utc)
 
     def test_build_queries_counts_and_dimensions(self):
         qs = lambda_c_metrics.build_queries(self.INSTANCE_IDS, self.ALB_SERVERS)
-        # EC2 지표 3개 x 5대 + ALB 지표 6개 x 2대(k3s, dashboard)
-        self.assertEqual(len(qs), 3 * 5 + 6 * 2)
+        # EC2 지표 3개 x 3대 + ALB 지표 6개 x 1대(k3s)
+        self.assertEqual(len(qs), 3 * 3 + 6 * 1)
         ids = {q["Id"] for q in qs}
         self.assertIn("shop_db_cpu", ids)
         self.assertNotIn("shop_db_req", ids)  # ALB 뒤에 없는 서버는 요청 지표가 없다
@@ -205,8 +206,8 @@ class LambdaCTest(unittest.TestCase):
         self.assertEqual(row["status"], "unhealthy")
 
     def test_unhealthy_target_without_status_check_is_degraded(self):
-        results = {"dashboard_cpu": [5.0], "dashboard_status": [0.0], "dashboard_unhealthy": [1.0]}
-        row = lambda_c_metrics.build_rows(["dashboard"], self.ALB_SERVERS, results, self.START, self.END)[0]
+        results = {"k3s_cpu": [5.0], "k3s_status": [0.0], "k3s_unhealthy": [1.0]}
+        row = lambda_c_metrics.build_rows(["k3s"], self.ALB_SERVERS, results, self.START, self.END)[0]
         self.assertEqual(row["status"], "degraded")
 
     def test_no_datapoints_is_unknown_not_unhealthy(self):

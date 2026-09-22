@@ -79,12 +79,10 @@ resource "aws_lambda_function" "this" {
 
   environment {
     variables = {
-      DB_SECRET_ARN       = var.db_secret_arn
-      INSTANCE_IDS        = jsonencode(var.instance_ids)
-      SHOP_LB_ARN_SUFFIX  = var.shop_lb_arn_suffix
-      SHOP_TG_ARN_SUFFIX  = var.shop_tg_arn_suffix
-      ADMIN_LB_ARN_SUFFIX = var.admin_lb_arn_suffix
-      ADMIN_TG_ARN_SUFFIX = var.admin_tg_arn_suffix
+      DB_SECRET_ARN      = var.db_secret_arn
+      INSTANCE_IDS       = jsonencode(var.instance_ids)
+      SHOP_LB_ARN_SUFFIX = var.shop_lb_arn_suffix
+      SHOP_TG_ARN_SUFFIX = var.shop_tg_arn_suffix
     }
   }
 

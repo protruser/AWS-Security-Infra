@@ -6,10 +6,8 @@ WINDOW = 300
 
 DISPLAY_NAMES = {
     "k3s": "K3s / nginx",
-    "dashboard": "Dashboard",
     "shop_app": "Shop App",
     "shop_db": "Shop MySQL",
-    "security_db": "Security MySQL",
 }
 
 
