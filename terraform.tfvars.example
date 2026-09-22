@@ -19,5 +19,11 @@ enable_vpc_endpoints = false
 force_destroy_buckets = false
 
 # GitHub Actions OIDC를 이미 AWS 계정에 만들어 둔 경우에만 채움
+# 주의: github_repository는 단순 "owner/repo"가 아니라 실제 OIDC 토큰의 sub 클레임과
+# 정확히 일치해야 함. GitHub가 이름 대신(또는 이름과 함께) 불변 숫자 ID를 sub에 넣는
+# 경우가 있어서(owner@ownerId/repo@repoId 형식), "owner/repo"만 넣으면
+# AssumeRoleWithWebIdentity가 거부될 수 있음. 워크플로에서 OIDC 토큰의 sub 클레임을
+# 직접 찍어보고(예: 이 레포 .github/workflows/*.yml의 "Inspect OIDC claims" 스텝 참고)
+# 그 값을 그대로 넣을 것.
 github_repository        = ""
 github_oidc_provider_arn = ""

@@ -120,8 +120,14 @@ variable "admin_rate_limit" {
 }
 
 variable "github_repository" {
-  type        = string
-  description = "예: owner/repository"
+  type = string
+  # GitHub Actions OIDC 토큰의 sub 클레임 형식. 조직/레포 이름 재사용(리포 삭제 후 같은
+  # 이름으로 재생성)을 통한 신뢰관계 탈취를 막기 위해, GitHub가 이름 대신(또는 이름과 함께)
+  # 불변 숫자 ID를 sub에 넣는 경우가 있다 (owner@ownerId/repo@repoId 형식).
+  # 실제 값은 워크플로에서 OIDC 토큰의 sub 클레임을 그대로 찍어보고 그걸 넣어야 한다
+  # (예: "protruser@137254772/AWS-Security-Service@1378937222"). 그냥 "owner/repo"만
+  # 넣으면 AssumeRoleWithWebIdentity가 거부된다.
+  description = "예: owner/repository 또는 owner@ownerId/repo@repoId (실제 OIDC sub 클레임과 정확히 일치해야 함)"
   default     = ""
 }
 
