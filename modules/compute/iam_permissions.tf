@@ -104,6 +104,14 @@ resource "aws_iam_role_policy" "dashboard_aws_read" {
   policy = data.aws_iam_policy_document.dashboard_aws_read.json
 }
 
+# AI 진단(SK쉴더스 33개 항목)이 IAM/EC2/S3/RDS/ELB/ACM/CloudFront/CloudTrail/
+# Logs/SSM 현재 설정을 폭넓게 읽어야 해서, AWS가 이런 감사/진단 도구용으로
+# 제공하는 읽기 전용 관리형 정책(SecurityAudit)을 그대로 사용한다.
+resource "aws_iam_role_policy_attachment" "dashboard_security_audit" {
+  role       = aws_iam_role.ec2["dashboard"].name
+  policy_arn = "arn:aws:iam::aws:policy/SecurityAudit"
+}
+
 # 대시보드(Flask)가 승인된 조치를 Lambda Remediation 으로 실행하도록 허용
 data "aws_iam_policy_document" "dashboard_invoke_remediation" {
   statement {
