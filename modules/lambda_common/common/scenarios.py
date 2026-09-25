@@ -37,6 +37,18 @@ SCENARIOS = {
         "path": ADMIN_PATH,
         "recommendation": "출발지 IP 차단 및 관리자 접근 CIDR·MFA 점검",
     },
+    "flood": {
+        "title": "대량 요청 과부하 탐지 (Rate Limit)",
+        "highlight": ["attacker", "igw", "shopWAF", "shopALB", "k3s", "cwLogs"],
+        "path": SHOP_PATH,
+        "recommendation": "공격 IP 차단 및 Rate Limit 임계치·차단 유지시간 조정 검토",
+    },
+    "flood_admin": {
+        "title": "관리자 ALB 대량 요청 과부하 탐지 (Rate Limit)",
+        "highlight": ["attacker", "igw", "adminWAF", "dashALB", "dashEC2", "cwLogs"],
+        "path": ADMIN_PATH,
+        "recommendation": "공격 IP 차단 및 관리자 Rate Limit 임계치 조정 검토",
+    },
     "port": {
         "title": "포트 스캔 탐지",
         "highlight": ["vpcFlow", "cwLogs", "guardDuty", "securityHub", "k3s"],

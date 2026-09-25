@@ -45,6 +45,8 @@ def classify_record(rec, login_paths):
         hits.add("dir")
     if (req.get("httpMethod") or "").upper() == "POST" and (req.get("uri") or "") in login_paths:
         hits.add("brute")
+    if "RateLimit" in rules:
+        hits.add("flood")
     return hits
 
 
@@ -76,15 +78,18 @@ def detect(records, source, window_start, cfg):
 
 
 def _severity(kind, count, cfg):
-    if kind in ("sqli", "brute") and count >= cfg["critical_count"]:
+    if kind in ("sqli", "brute", "flood") and count >= cfg["critical_count"]:
         return "Critical"
-    return {"sqli": "High", "brute": "High", "xss": "Medium", "dir": "Medium"}[kind]
+    return {"sqli": "High", "brute": "High", "xss": "Medium", "dir": "Medium", "flood": "High"}[kind]
 
 
 def _to_event(kind, ip, recs, source, window_start, cfg):
-    # brute_admin 은 맵 강조(관리자 경로 표시)를 위한 조회 키일 뿐이다.
-    # scenario_type 은 화면 필터가 쓰는 7개 시나리오 값(brute)으로 고정한다.
-    lookup_key = "brute_admin" if (kind == "brute" and source == "admin") else kind
+    # brute_admin/flood_admin 은 맵 강조(관리자 경로 표시)를 위한 조회 키일 뿐이다.
+    # scenario_type 은 화면 필터가 쓰는 시나리오 값(brute/flood)으로 고정한다.
+    if source == "admin" and kind in ("brute", "flood"):
+        lookup_key = f"{kind}_admin"
+    else:
+        lookup_key = kind
     scenario = SCENARIOS[lookup_key]
     blocked_n = sum(1 for r in recs if r.get("action") == "BLOCK")
     if blocked_n == len(recs):
