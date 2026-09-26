@@ -59,7 +59,13 @@ SCENARIOS = {
         "title": "탈취 자격증명 사용 탐지",
         "highlight": ["cloudTrail", "s3Logs", "guardDuty", "accessAnalyzer", "securityHub"],
         "path": [],
-        "recommendation": "해당 IAM 사용자의 Access Key 즉시 비활성화",
+        "recommendation": "해당 IAM 사용자의 Access Key 즉시 비활성화 후 CloudTrail 에서 이 키의 호출 내역 확인",
+        # IAM 사용자가 없는 역할·임시 자격증명(예: InstanceCredentialExfiltration)은 비활성화할
+        # Access Key 가 없다. 대시보드(app.py ROLE_CRED_RECOMMENDATION)와 같은 문구를 쓴다.
+        "recommendation_role": (
+            "해당 역할의 활성 세션 폐기(IAM 역할 → Revoke active sessions), CloudTrail 에서 이 자격증명의 "
+            "호출 내역 확인, 자격증명을 발급한 EC2 의 침해 여부 점검, 역할이 읽을 수 있는 Secret 교체"
+        ),
     },
     "vuln": {
         "title": "취약 컨테이너 이미지/패키지 발견",
