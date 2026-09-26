@@ -96,7 +96,8 @@ def finding_to_event(f):
         "asset": ((resource.get("Type") or "") + " " + (resource.get("Id") or "").split("/")[-1]).strip()[:255] or None,
         "detected_at": _ts(f.get("UpdatedAt") or f.get("CreatedAt")),
         "status": "승인 대기" if auto else "검토 필요",
-        "recommendation": sc["recommendation"],
+        # 역할 키 탈취(IAM 사용자 없음)는 Access Key 비활성화가 불가능하므로 역할 세션 폐기를 권고한다.
+        "recommendation": sc["recommendation_role"] if kind == "cred" and user is None else sc["recommendation"],
         "auto_remediation": auto,
         "highlight_assets": sc["highlight"],
         "attack_path": sc["path"],

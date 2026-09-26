@@ -65,6 +65,21 @@ class MappingTest(unittest.TestCase):
         e = mapping.finding_to_event(f)
         self.assertEqual(json.loads(e["logs"])["extracted"]["userName"], "ex-employee")
         self.assertTrue(e["auto_remediation"])
+        self.assertIn("Access Key", e["recommendation"])
+
+    def test_role_credential_finding_recommends_session_revoke(self):
+        """역할·임시 자격증명은 비활성화할 Access Key 가 없다 → 수동 조치 + 세션 폐기 권고."""
+        f = finding("GuardDuty", "UnauthorizedAccess:IAMUser/InstanceCredentialExfiltration.OutsideAWS",
+                    "AwsIamAccessKey",
+                    Resources=[{"Type": "AwsIamAccessKey", "Id": "ASIA1",
+                                "Details": {"AwsIamAccessKey": {"PrincipalId": "AROA1:i-1",
+                                                                "PrincipalType": "AssumedRole"}}}])
+        e = mapping.finding_to_event(f)
+        self.assertEqual(e["scenario_type"], "cred")
+        self.assertFalse(e["auto_remediation"])
+        self.assertEqual(e["status"], "검토 필요")
+        self.assertIn("세션 폐기", e["recommendation"])
+        self.assertNotIn("Access Key 즉시 비활성화", e["recommendation"])
 
     def test_inspector_and_analyzer(self):
         self.assertEqual(mapping.finding_to_event(finding("Inspector", "x", "AwsEcrContainerImage"))["highlight_assets"][0], "ecr")
