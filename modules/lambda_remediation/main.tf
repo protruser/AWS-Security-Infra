@@ -2,9 +2,11 @@
 # 코드: src/remediation.py (+ ../lambda_common). 배포 전 src/build.sh 로 패키지 생성
 
 data "archive_file" "this" {
-  type        = "zip"
-  source_dir  = "${path.module}/src/build"
-  output_path = "${path.module}/src/remediation.zip"
+  type       = "zip"
+  source_dir = "${path.module}/src/build"
+  # 빌드한 OS 에 따라 파일 권한이 달라져 zip 해시가 바뀌지 않도록 고정한다.
+  output_file_mode = "0644"
+  output_path      = "${path.module}/src/remediation.zip"
 }
 
 data "aws_iam_policy_document" "assume" {

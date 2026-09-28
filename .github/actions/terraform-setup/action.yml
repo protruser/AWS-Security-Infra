@@ -1,0 +1,74 @@
+name: Terraform setup
+description: Lambda 패키지 빌드, Terraform 설치, tfvars 주입, AWS 인증, terraform init
+
+# plan/apply job 이 공통으로 쓰는 준비 단계.
+# 레포가 public 이라 워크플로 로그도 공개된다. 여기서는 변수 값이나 plan 내용을
+# 로그에 찍지 않는다.
+
+inputs:
+  role-arn:
+    description: assume 할 IAM 역할 ARN
+    required: true
+  aws-region:
+    description: AWS 리전
+    required: true
+  tfvars:
+    description: terraform.tfvars 전체 내용 (TERRAFORM_TFVARS Secret)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        ROLE_ARN: ${{ inputs.role-arn }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        TFVARS: ${{ inputs.tfvars }}
+      run: |
+        for name in ROLE_ARN AWS_REGION TFVARS; do
+          if [[ -z "${!name:-}" ]]; then
+            echo "Required input is not configured: ${name}" >&2
+            exit 1
+          fi
+        done
+
+    # Lambda 런타임과 같은 버전. build/ 와 zip 은 커밋하지 않으므로 여기서 만든다.
+    # 빌드하지 않으면 archive_file 이 빈 디렉터리를 못 찾아 plan 이 실패한다.
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Build Lambda packages
+      shell: bash
+      run: |
+        set -euo pipefail
+        for script in modules/*/src/build.sh; do
+          bash "$script"
+        done
+
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v4
+      with:
+        terraform_version: 1.16.4
+        # wrapper 는 stdout 을 가로채서 리다이렉트와 종료 코드가 꼬인다.
+        terraform_wrapper: false
+
+    - name: Write terraform.tfvars
+      shell: bash
+      env:
+        TFVARS: ${{ inputs.tfvars }}
+      run: |
+        umask 077
+        printf '%s\n' "$TFVARS" > terraform.tfvars
+
+    - name: Configure AWS credentials with GitHub OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.role-arn }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Terraform init
+      shell: bash
+      run: terraform init -input=false -no-color

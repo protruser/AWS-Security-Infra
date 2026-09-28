@@ -45,6 +45,7 @@ module "compute" {
   github_repositories      = var.github_repositories
   github_oidc_provider_arn = var.github_oidc_provider_arn
   terraform_ci_repository  = var.terraform_ci_repository
+  terraform_ci_branch      = var.terraform_ci_branch
   terraform_state_bucket   = var.terraform_state_bucket
   terraform_state_key      = var.terraform_state_key
 

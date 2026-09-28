@@ -37,11 +37,15 @@ data "aws_iam_policy_document" "terraform_plan_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # 같은 레포 브랜치에서 올라온 PR 에서만 plan 을 돌린다.
+    # 같은 레포 브랜치에서 올라온 PR, 그리고 gyu 에 머지된 뒤 승인 요청 전에
+    # 돌리는 plan(terraform-apply.yml 의 plan job)에서만 쓴다.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.terraform_ci_repository}:pull_request"]
+      values = [
+        "repo:${var.terraform_ci_repository}:pull_request",
+        "repo:${var.terraform_ci_repository}:ref:refs/heads/${var.terraform_ci_branch}"
+      ]
     }
   }
 }

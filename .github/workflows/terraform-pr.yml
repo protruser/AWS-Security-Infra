@@ -1,0 +1,156 @@
+name: Terraform PR check
+
+# gyu 로 올라온 PR 을 검사한다: fmt / validate / TFLint / Checkov / plan.
+# 운영 AWS 리소스는 바꾸지 않는다(plan 역할은 읽기 전용 + state 락만).
+#
+# 레포가 public 이라 로그, Job Summary, PR 코멘트가 모두 공개된다.
+# plan 결과는 "리소스 주소 + 동작"만 남기고 값은 남기지 않는다.
+# pull_request_target 으로 바꾸면 fork 코드가 AWS 권한으로 실행되므로 절대 바꾸지 않는다.
+
+on:
+  pull_request:
+    branches:
+      - gyu
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  TF_IN_AUTOMATION: "1"
+
+jobs:
+  static:
+    name: fmt / validate / TFLint / Checkov
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.16.4
+          terraform_wrapper: false
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive -diff -no-color
+
+      # backend 없이 init 해서 AWS 자격증명 없이 문법/타입만 검사한다.
+      # archive_file 은 plan 때 평가되므로 Lambda 빌드 없이도 validate 는 된다.
+      - name: Terraform validate
+        run: |
+          terraform init -backend=false -input=false -no-color
+          terraform validate -no-color
+
+      - name: Set up TFLint
+        uses: terraform-linters/setup-tflint@v6
+        with:
+          tflint_version: v0.64.0
+
+      - name: TFLint
+        env:
+          # 플러그인 다운로드 시 GitHub API rate limit 회피
+          GITHUB_TOKEN: ${{ github.token }}
+        # --recursive 는 디렉터리마다 설정을 찾으므로 루트 설정을 명시한다.
+        run: |
+          tflint --init --config "$GITHUB_WORKSPACE/.tflint.hcl"
+          tflint --recursive --config "$GITHUB_WORKSPACE/.tflint.hcl" \
+            --minimum-failure-severity=error --format compact
+
+      # 기존 코드에 이미 있는 지적 사항이 많아서 당장은 실패로 막지 않고 결과만 남긴다.
+      # 정리가 끝나면 soft_fail 을 false 로 바꾼다.
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: terraform
+          quiet: true
+          soft_fail: true
+          output_format: cli
+
+  plan:
+    name: Terraform plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # fork PR 에는 OIDC 토큰이 발급되지 않고, Secret 도 전달되지 않는다.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare Terraform
+        uses: ./.github/actions/terraform-setup
+        with:
+          role-arn: ${{ vars.TF_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          tfvars: ${{ secrets.TERRAFORM_TFVARS }}
+
+      # plan 전체 출력에는 IP, 리소스 ID 같은 값이 들어가므로 파일로만 받는다.
+      # 실패하면 오류 부분만 로그에 찍는다.
+      - name: Terraform plan
+        id: plan
+        run: |
+          set +e
+          terraform plan -input=false -no-color -lock-timeout=5m \
+            -detailed-exitcode -out=tfplan > plan.log 2>&1
+          code=$?
+          set -e
+          if [[ $code -eq 1 ]]; then
+            sed -n '/Error:/,$p' plan.log
+            exit 1
+          fi
+          echo "has_changes=$([[ $code -eq 2 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize plan
+        run: |
+          {
+            echo "<!-- terraform-pr-plan -->"
+            echo "### Terraform plan"
+            echo
+            echo "commit: \`${{ github.event.pull_request.head.sha }}\`"
+            echo
+            if [[ "${{ steps.plan.outputs.has_changes }}" == "true" ]]; then
+              grep -E '^(Plan|Changes to Outputs):' plan.log || true
+              echo
+              echo '```'
+              bash .github/scripts/plan-summary.sh tfplan
+              echo '```'
+            else
+              echo "No changes. 인프라 변경 없음."
+            fi
+            echo
+            echo "_값은 공개 로그에 남기지 않기 위해 리소스 주소와 동작만 표시합니다._"
+          } > plan-summary.md
+          cat plan-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      # PR 마다 코멘트 하나를 계속 갱신한다.
+      - name: Comment plan on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('plan-summary.md', 'utf8');
+            const marker = '<!-- terraform-pr-plan -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const mine = comments.find(c => c.user.type === 'Bot' && c.body.startsWith(marker));
+            if (mine) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

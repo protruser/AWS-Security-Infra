@@ -1,2 +1,4 @@
 pymysql==1.1.1
-cryptography>=42,<46
+cryptography==45.0.7
+cffi==2.1.1
+pycparser==3.0

@@ -10,4 +10,6 @@ pip install --quiet --target build --platform manylinux2014_x86_64 \
 cp remediation.py build/
 cp -r ../../lambda_common/common build/common
 find build -name '__pycache__' -type d -prune -exec rm -rf {} +
+# Windows 체크아웃(CRLF)과 CI(LF)에서 zip 이 달라지지 않게 직접 작성한 코드는 LF 로 맞춘다.
+sed -i 's/$//' build/*.py build/common/*.py
 echo "built: $(pwd)/build"
