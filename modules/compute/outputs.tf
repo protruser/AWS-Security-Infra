@@ -36,3 +36,7 @@ output "terraform_plan_role_arn" {
 output "terraform_apply_role_arn" {
   value = try(aws_iam_role.terraform_apply[0].arn, null)
 }
+
+output "terraform_plan_kms_key_arn" {
+  value = try(aws_kms_key.terraform_plans[0].arn, null)
+}

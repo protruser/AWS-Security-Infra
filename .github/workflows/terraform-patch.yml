@@ -1,0 +1,195 @@
+name: Terraform patch validation
+
+# 대시보드가 만든 AI 패치 PR(ai-patch/<패치 UUID> → gyu)을 검증한다.
+# 결과는 manifest.json artifact 하나로만 대시보드에 넘긴다(대시보드 refresh_checks 가 읽음).
+#   - fmt / validate / TFLint / Checkov / plan 다섯 가지가 모두 PASS 여야 최종 승인 단계로 간다.
+#   - plan 파일은 전용 KMS 키로 암호화해 state 버킷의 terraform-patches/ 에 저장하고,
+#     배포 때 sha256 + 버전 ID 로 정확히 그 파일만 apply 한다.
+# 운영 AWS 리소스는 바꾸지 않는다(plan 역할은 읽기 전용 + state 락 + plan 저장).
+# 레포가 public 이라 plan/state 내용, 로그 원문은 artifact 에도 로그에도 남기지 않는다.
+
+on:
+  pull_request:
+    branches:
+      - gyu
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: terraform-patch-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'ai-patch/') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PATCH_BRANCH: ${{ github.head_ref }}
+      RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      TF_IN_AUTOMATION: "1"
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      PLAN_BUCKET: ${{ vars.TF_PLAN_BUCKET }}
+      PLAN_KMS_KEY: ${{ vars.TF_PLAN_KMS_KEY_ARN }}
+
+    steps:
+      - name: Check out patch commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          # Checkov 비교용으로 base commit 도 필요하다.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify patch identity and configuration
+        id: identity
+        run: |
+          set -euo pipefail
+          [[ "$PATCH_BRANCH" =~ ^ai-patch/[0-9a-f-]{36}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$HEAD_SHA" ]]
+          for name in AWS_REGION PLAN_BUCKET PLAN_KMS_KEY; do
+            [[ -n "${!name:-}" ]] || { echo "Missing GitHub variable for $name" >&2; exit 1; }
+          done
+          echo "PATCH_ID=${PATCH_BRANCH#ai-patch/}" >> "$GITHUB_ENV"
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.16.4
+          terraform_wrapper: false
+
+      - name: Terraform fmt
+        id: fmt
+        continue-on-error: true
+        run: terraform fmt -check -recursive -no-color
+
+      - name: Init without backend for static checks
+        id: init_static
+        continue-on-error: true
+        run: terraform init -backend=false -input=false -no-color > /tmp/terraform-init.log 2>&1
+
+      - name: Terraform validate
+        id: validate
+        continue-on-error: true
+        run: terraform validate -no-color
+
+      - name: Set up TFLint
+        id: setup_tflint
+        continue-on-error: true
+        uses: terraform-linters/setup-tflint@v6
+        with:
+          tflint_version: v0.64.0
+
+      # 기존 코드 기준으로 error 수준만 실패로 본다(terraform-pr.yml 과 같은 기준).
+      - name: TFLint
+        id: tflint
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          tflint --init --config "$GITHUB_WORKSPACE/.tflint.hcl"
+          tflint --recursive --config "$GITHUB_WORKSPACE/.tflint.hcl" \
+            --minimum-failure-severity=error --format compact
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Checkov
+        id: setup_checkov
+        continue-on-error: true
+        run: python -m pip install --quiet checkov==3.3.20
+
+      # 기존 코드에 이미 있는 지적은 base(gyu)에도 똑같이 있으므로, 패치가 새로 만든
+      # 지적이 있을 때만 실패로 본다.
+      - name: Checkov (new findings only)
+        id: checkov
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/base "$BASE_SHA" > /dev/null
+          checkov -d /tmp/base --framework terraform --quiet -o json > /tmp/checkov-base.json || true
+          checkov -d . --framework terraform --quiet -o json > /tmp/checkov-head.json || true
+          python scripts/terraform_patch_ci.py checkov-new /tmp/checkov-base.json /tmp/checkov-head.json
+
+      - name: Prepare Terraform with plan role
+        id: aws
+        if: ${{ steps.fmt.outcome == 'success' && steps.init_static.outcome == 'success' && steps.validate.outcome == 'success' && steps.setup_tflint.outcome == 'success' && steps.tflint.outcome == 'success' && steps.setup_checkov.outcome == 'success' && steps.checkov.outcome == 'success' }}
+        continue-on-error: true
+        uses: ./.github/actions/terraform-setup
+        with:
+          role-arn: ${{ vars.TF_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          tfvars: ${{ secrets.TERRAFORM_TFVARS }}
+
+      # plan 전후 state lineage/serial 을 기록해서, 배포 때 state 가 그 사이 바뀌었으면
+      # 승인된 plan 을 쓰지 않는다.
+      - name: Terraform plan and encrypted storage
+        id: plan
+        if: ${{ steps.aws.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          [[ -n "$PATCH_ID" ]]
+          terraform state pull | python -c 'import json,sys; s=json.load(sys.stdin); json.dump({"lineage":s["lineage"],"serial":s["serial"]},open("/tmp/patch-state.json","w"))'
+          set +e
+          terraform plan -input=false -no-color -lock-timeout=5m -out=/tmp/patch.tfplan > /tmp/terraform-plan.log 2>&1
+          code=$?
+          set -e
+          if [[ $code -ne 0 ]]; then
+            sed -n '/Error:/,$p' /tmp/terraform-plan.log
+            exit 1
+          fi
+          terraform state pull | python -c 'import json,sys; s=json.load(sys.stdin); before=json.load(open("/tmp/patch-state.json")); assert s["lineage"]==before["lineage"] and s["serial"]==before["serial"]'
+          terraform show -json /tmp/patch.tfplan > /tmp/patch-plan.json
+          python scripts/terraform_patch_ci.py plan-summary /tmp/patch-plan.json /tmp/patch-plan-summary.json
+          rm -f /tmp/patch-plan.json
+          plan_sha="$(sha256sum /tmp/patch.tfplan | cut -d ' ' -f 1)"
+          plan_key="terraform-patches/$PATCH_ID/$HEAD_SHA/${{ github.run_id }}-${{ github.run_attempt }}.tfplan"
+          version_id="$(aws s3api put-object --bucket "$PLAN_BUCKET" --key "$plan_key" \
+            --body /tmp/patch.tfplan --server-side-encryption aws:kms \
+            --ssekms-key-id "$PLAN_KMS_KEY" --query VersionId --output text)"
+          [[ -n "$version_id" && "$version_id" != None ]]
+          echo "PLAN_SHA256=$plan_sha" >> "$GITHUB_ENV"
+          echo "PLAN_KEY=$plan_key" >> "$GITHUB_ENV"
+          echo "PLAN_VERSION_ID=$version_id" >> "$GITHUB_ENV"
+          rm -f /tmp/patch.tfplan
+
+      - name: Write minimal results manifest
+        if: ${{ always() && steps.identity.outcome == 'success' }}
+        env:
+          CHECK_FMT: ${{ steps.fmt.outcome }}
+          CHECK_VALIDATE: ${{ steps.validate.outcome }}
+          CHECK_PLAN: ${{ steps.plan.outcome }}
+          CHECK_TFLINT: ${{ steps.tflint.outcome }}
+          CHECK_CHECKOV: ${{ steps.checkov.outcome }}
+          CHECK_INIT_STATIC: ${{ steps.init_static.outcome }}
+          CHECK_SETUP_TFLINT: ${{ steps.setup_tflint.outcome }}
+          CHECK_SETUP_CHECKOV: ${{ steps.setup_checkov.outcome }}
+          CHECK_AWS: ${{ steps.aws.outcome }}
+        run: |
+          mkdir -p /tmp/terraform-patch-artifact
+          python scripts/terraform_patch_ci.py manifest /tmp/terraform-patch-artifact/manifest.json
+
+      - name: Upload results without plan, state or logs
+        if: ${{ always() && steps.identity.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-patch-${{ env.PATCH_ID }}
+          path: /tmp/terraform-patch-artifact/manifest.json
+          retention-days: 90
+
+      - name: Require every check
+        if: ${{ always() }}
+        run: |
+          [[ "${{ steps.identity.outcome }}" == success ]]
+          [[ "${{ steps.fmt.outcome }}" == success ]]
+          [[ "${{ steps.validate.outcome }}" == success ]]
+          [[ "${{ steps.tflint.outcome }}" == success ]]
+          [[ "${{ steps.checkov.outcome }}" == success ]]
+          [[ "${{ steps.plan.outcome }}" == success ]]

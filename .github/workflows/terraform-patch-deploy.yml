@@ -1,0 +1,181 @@
+name: Terraform patch deployment
+run-name: Terraform patch ${{ inputs.patch_id }}
+
+# 대시보드 최종 승인을 받은 AI 패치를 배포한다. 대시보드의 deploy worker 만 dispatch 한다.
+#   1) 대시보드가 서명한 승인(15분 유효)을 검증한다. 서명 키는 이 레포 Secret 과 대시보드만 안다.
+#   2) PR / 패치 브랜치 / gyu / 검증 실행이 승인 당시와 같은지 확인한다.
+#   3) 검증 때 저장한 plan 파일을 버전 ID 로 가져와 sha256 과 state lineage/serial 을 대조한다.
+#   4) PR 을 머지하고, 그 plan 파일 그대로 apply 한다. (새로 plan 하지 않는다)
+# 하나라도 다르면 멈춘다. 머지 후 apply 가 실패하면 재시도하지 않고 실패로 기록한다.
+#
+# terraform-production environment: 승인자 없음, 배포 브랜치는 gyu 만. 승인은 1)의 서명이 대신한다.
+# workflow_dispatch 는 기본 브랜치에 있는 워크플로만 호출할 수 있어서 레포 기본 브랜치는 gyu 여야 한다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      patch_id:
+        description: Exact approved patch ID
+        required: true
+        type: string
+      authorization:
+        description: Server-signed approval for an exact commit and saved plan
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+
+# terraform-apply.yml 과 같은 그룹: 운영 state 에 대한 배포는 한 번에 하나만.
+concurrency:
+  group: terraform-production
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/gyu'
+    runs-on: ubuntu-latest
+    environment: terraform-production
+    timeout-minutes: 60
+    env:
+      PATCH_AUTHORIZATION: ${{ inputs.authorization }}
+      PATCH_ID: ${{ inputs.patch_id }}
+      PATCH_APPROVAL_SIGNING_KEY: ${{ secrets.PATCH_APPROVAL_SIGNING_KEY }}
+      TF_IN_AUTOMATION: "1"
+      PLAN_BUCKET: ${{ vars.TF_PLAN_BUCKET }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      # 이 시점의 체크아웃은 gyu(이미 머지된 신뢰 코드)다. 서명 검증 스크립트도 gyu 것을 쓴다.
+      - name: Check out gyu
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify server approval before loading patch code or AWS identity
+        id: approval
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_patch_authorization.py /tmp/approval.json
+          python3 - <<'PY'
+          import json, os, re
+          c = json.load(open('/tmp/approval.json'))
+          assert c['patch_id'] == os.environ['PATCH_ID']
+          assert c['base_ref'] == os.environ['GITHUB_REF_NAME']
+          assert re.fullmatch(r'[0-9a-f]{40}', c['head_sha'])
+          assert re.fullmatch(r'[0-9a-f]{40}', c['base_sha'])
+          assert re.fullmatch(r'ai-patch/[0-9a-f-]{36}', c['branch'])
+          assert isinstance(c['pr_number'], int)
+          assert isinstance(c['check_run_id'], int)
+          assert re.fullmatch(r'[A-Za-z0-9._-]{1,1024}', c['plan_version_id'])
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              for k in ('head_sha', 'base_sha', 'branch', 'base_ref', 'pr_number', 'check_run_id',
+                        'plan_sha256', 'plan_key', 'plan_version_id'):
+                  f.write(f'{k.upper()}={c[k]}\n')
+          PY
+
+      - name: Confirm PR, branch and base commit are unchanged
+        run: |
+          set -euo pipefail
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          [[ "$(jq -r '.state' <<<"$pr")" == open ]]
+          [[ "$(jq -r '.draft' <<<"$pr")" == true ]]
+          [[ "$(jq -r '.head.sha' <<<"$pr")" == "$HEAD_SHA" ]]
+          [[ "$(jq -r '.base.ref' <<<"$pr")" == "$BASE_REF" ]]
+          echo "PR_NODE_ID=$(jq -r '.node_id' <<<"$pr")" >> "$GITHUB_ENV"
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/$BASE_REF" --jq '.sha')" == "$BASE_SHA" ]]
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq '.object.sha')" == "$HEAD_SHA" ]]
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHECK_RUN_ID")"
+          [[ "$(jq -r '.conclusion' <<<"$run")" == success ]]
+          [[ "$(jq -r '.head_branch' <<<"$run")" == "$BRANCH" ]]
+          [[ "$(jq -r '.event' <<<"$run")" == pull_request ]]
+          [[ "$(jq -r '.path' <<<"$run")" == .github/workflows/terraform-patch.yml ]]
+
+      - name: Check out exact approved patch commit
+        run: |
+          set -euo pipefail
+          git checkout --detach "$HEAD_SHA"
+          [[ "$(git rev-parse HEAD)" == "$HEAD_SHA" ]]
+
+      # Lambda zip 은 plan 에 기록된 해시와 같아야 apply 된다(빌드는 결정적).
+      - name: Prepare Terraform with apply role
+        uses: ./.github/actions/terraform-setup
+        with:
+          role-arn: ${{ vars.TF_APPLY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          tfvars: ${{ secrets.TERRAFORM_TFVARS }}
+
+      - name: Verify immutable plan and Terraform state
+        id: plan
+        run: |
+          set -euo pipefail
+          [[ -n "$PLAN_BUCKET" ]]
+          aws s3api get-object --bucket "$PLAN_BUCKET" --key "$PLAN_KEY" \
+            --version-id "$PLAN_VERSION_ID" /tmp/approved.tfplan > /dev/null
+          [[ "$(sha256sum /tmp/approved.tfplan | cut -d ' ' -f 1)" == "$PLAN_SHA256" ]]
+          terraform state pull | python3 -c 'import json,sys; s=json.load(sys.stdin); a=json.load(open("/tmp/approval.json")); assert s["lineage"]==a["state"]["lineage"] and s["serial"]==a["state"]["serial"]'
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/$BASE_REF" --jq '.sha')" == "$BASE_SHA" ]]
+
+      # draft PR 은 REST 로 ready 상태로 바꿀 수 없어 GraphQL 을 쓴다.
+      # GITHUB_TOKEN 으로 한 머지는 새 워크플로를 트리거하지 않으므로 terraform-apply.yml 은 돌지 않는다.
+      - name: Merge approved PR without running Terraform
+        id: merge
+        run: |
+          set -euo pipefail
+          gh api graphql -f query='mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }' \
+            -f id="$PR_NODE_ID" --jq '.data.markPullRequestReadyForReview.pullRequest.isDraft' | grep -qx false
+          gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/merge" \
+            -f sha="$HEAD_SHA" -f merge_method=merge > /tmp/merge-result.json
+          python3 -c 'import json; assert json.load(open("/tmp/merge-result.json"))["merged"] is True'
+          merge_sha="$(python3 -c 'import json; print(json.load(open("/tmp/merge-result.json"))["sha"])')"
+          head_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$HEAD_SHA" --jq '.tree.sha')"
+          merge_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$merge_sha" --jq '.tree.sha')"
+          [[ "$head_tree" == "$merge_tree" ]]
+          echo "MERGE_SHA=$merge_sha" >> "$GITHUB_ENV"
+
+      # apply 출력에는 리소스 ID/값이 섞이므로 결과 줄과 오류만 찍는다.
+      - name: Reconfirm state and apply exact approved saved plan
+        id: apply
+        run: |
+          set -euo pipefail
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/$BASE_REF" --jq '.sha')" == "$MERGE_SHA" ]]
+          terraform state pull | python3 -c 'import json,sys; s=json.load(sys.stdin); a=json.load(open("/tmp/approval.json")); assert s["lineage"]==a["state"]["lineage"] and s["serial"]==a["state"]["serial"]'
+          set +e
+          terraform apply -input=false -no-color -lock-timeout=5m /tmp/approved.tfplan > /tmp/terraform-apply.log 2>&1
+          code=$?
+          set -e
+          grep -E '^Apply complete!' /tmp/terraform-apply.log || true
+          if [[ $code -ne 0 ]]; then
+            sed -n '/Error:/,$p' /tmp/terraform-apply.log
+            exit 1
+          fi
+
+      - name: Record sanitized deployment result
+        if: ${{ always() && steps.approval.outcome == 'success' }}
+        env:
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          APPLY_OUTCOME: ${{ steps.apply.outcome }}
+          MERGE_OUTCOME: ${{ steps.merge.outcome }}
+        run: |
+          mkdir -p /tmp/deployment-result
+          python3 - <<'PY'
+          import json, os, datetime
+          data = {'patch_id': os.environ['PATCH_ID'], 'head_sha': os.getenv('HEAD_SHA'),
+                  'merge_sha': os.getenv('MERGE_SHA'), 'apply_status': os.environ['APPLY_OUTCOME'],
+                  'merge_status': os.environ['MERGE_OUTCOME'], 'plan_status': os.environ['PLAN_OUTCOME'],
+                  'at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                  'run_id': int(os.environ['GITHUB_RUN_ID'])}
+          with open('/tmp/deployment-result/manifest.json', 'w') as output:
+              json.dump(data, output)
+          PY
+
+      - name: Upload result without Terraform logs or state
+        if: ${{ always() && steps.approval.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-deploy-${{ env.PATCH_ID }}
+          path: /tmp/deployment-result/manifest.json
+          retention-days: 90

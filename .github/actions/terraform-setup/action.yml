@@ -69,6 +69,7 @@ runs:
         role-to-assume: ${{ inputs.role-arn }}
         aws-region: ${{ inputs.aws-region }}
 
+    # 앞에서 -backend=false 로 init 한 작업 디렉터리여도 S3 backend 로 다시 잡는다.
     - name: Terraform init
       shell: bash
-      run: terraform init -input=false -no-color
+      run: terraform init -input=false -reconfigure -no-color
