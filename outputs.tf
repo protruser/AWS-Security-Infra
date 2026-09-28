@@ -39,6 +39,11 @@ output "terraform_plan_role_arn" {
   value       = module.compute.terraform_plan_role_arn
 }
 
+output "terraform_plan_kms_key_arn" {
+  description = "AI 패치 plan 파일 암호화 키 (GitHub Variable TF_PLAN_KMS_KEY_ARN)"
+  value       = module.compute.terraform_plan_kms_key_arn
+}
+
 output "terraform_apply_role_arn" {
   description = "인프라 레포 GitHub Actions 의 배포(apply)용 역할 (production environment 전용)"
   value       = module.compute.terraform_apply_role_arn
