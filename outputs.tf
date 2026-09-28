@@ -34,6 +34,16 @@ output "github_deploy_role_arn" {
   value = module.compute.github_deploy_role_arn
 }
 
+output "terraform_plan_role_arn" {
+  description = "인프라 레포 GitHub Actions 의 PR 검사(plan)용 역할"
+  value       = module.compute.terraform_plan_role_arn
+}
+
+output "terraform_apply_role_arn" {
+  description = "인프라 레포 GitHub Actions 의 배포(apply)용 역할 (production environment 전용)"
+  value       = module.compute.terraform_apply_role_arn
+}
+
 output "instance_ids" {
   description = "GitHub Actions(SSM) 배포 대상 서버 ID"
   value       = module.compute.instance_ids

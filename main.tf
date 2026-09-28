@@ -44,6 +44,9 @@ module "compute" {
   k3s_channel              = var.k3s_channel
   github_repositories      = var.github_repositories
   github_oidc_provider_arn = var.github_oidc_provider_arn
+  terraform_ci_repository  = var.terraform_ci_repository
+  terraform_state_bucket   = var.terraform_state_bucket
+  terraform_state_key      = var.terraform_state_key
 
   private_subnet_ids = module.network.private_subnet_ids
   security_group_ids = module.network.security_group_ids

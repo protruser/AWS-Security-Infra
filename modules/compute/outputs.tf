@@ -28,3 +28,11 @@ output "ecr_repositories" {
 output "github_deploy_role_arn" {
   value = try(aws_iam_role.github_deploy[0].arn, null)
 }
+
+output "terraform_plan_role_arn" {
+  value = try(aws_iam_role.terraform_plan[0].arn, null)
+}
+
+output "terraform_apply_role_arn" {
+  value = try(aws_iam_role.terraform_apply[0].arn, null)
+}

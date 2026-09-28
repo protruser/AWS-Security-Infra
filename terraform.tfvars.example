@@ -28,3 +28,7 @@ force_destroy_buckets = false
 # 그 값을 그대로 넣을 것.
 github_repositories       = []
 github_oidc_provider_arn = ""
+
+# 인프라 레포 자체의 GitHub Actions(terraform plan/apply)용 역할. 형식은 위와 같음.
+# 비워두면 역할을 만들지 않음.
+terraform_ci_repository = ""

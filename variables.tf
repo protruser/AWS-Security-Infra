@@ -141,6 +141,29 @@ variable "github_oidc_provider_arn" {
   default     = ""
 }
 
+variable "terraform_ci_repository" {
+  type = string
+  # 인프라 레포(AWS-Security-Infra)의 GitHub Actions 가 terraform plan/apply 에 쓸
+  # 역할을 만든다. github_repositories 와 마찬가지로 OIDC sub 클레임의 레포 부분과
+  # 정확히 일치해야 한다(예: "protruser@137254772/AWS-Security-Infra@1378957997").
+  # 비워두면 역할을 만들지 않는다.
+  description = "Terraform CI 를 돌릴 레포 (owner@ownerId/repo@repoId)"
+  default     = ""
+}
+
+# versions.tf 의 backend "s3" 설정과 같은 값이어야 한다(backend 블록은 변수를 못 씀).
+variable "terraform_state_bucket" {
+  type        = string
+  description = "Terraform state S3 버킷 (이 스택이 관리하지 않음)"
+  default     = "wonny-terraform-state"
+}
+
+variable "terraform_state_key" {
+  type        = string
+  description = "Terraform state 객체 키"
+  default     = "production/terraform.tfstate"
+}
+
 variable "mysql_image" {
   type        = string
   description = "DB 서버에서 실행할 MySQL Docker 이미지"
