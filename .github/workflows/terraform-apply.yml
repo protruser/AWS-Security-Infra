@@ -1,0 +1,150 @@
+name: Terraform apply
+
+# gyu 에 머지되면:
+#   1) plan job (읽기 전용 역할): 무엇이 바뀌는지 요약을 Job Summary 에 남긴다.
+#      변경이 없으면 여기서 끝난다(승인 요청도 없음).
+#   2) apply job (production environment): 승인자가 승인해야 시작된다.
+#      다시 plan 을 떠서 1)의 변경 목록과 같을 때만 apply 한다. 승인하는 사이
+#      gyu 나 실제 인프라가 바뀌어 내용이 달라졌으면 apply 하지 않고 실패한다.
+#
+# 레포가 public 이라 plan/apply 전체 출력은 로그에 찍지 않는다.
+# CI 역할(terraform-plan/apply) 자체를 바꾸는 변경은 apply 역할의 Deny 때문에
+# 여기서 실패한다. 그런 변경은 관리자가 로컬에서 apply 한다.
+
+on:
+  push:
+    branches:
+      - gyu
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: terraform-production
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "1"
+
+jobs:
+  plan:
+    name: Plan (before approval)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.ref == 'refs/heads/gyu'
+    outputs:
+      has_changes: ${{ steps.plan.outputs.has_changes }}
+      changes_sha: ${{ steps.summary.outputs.changes_sha }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare Terraform
+        uses: ./.github/actions/terraform-setup
+        with:
+          role-arn: ${{ vars.TF_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          tfvars: ${{ secrets.TERRAFORM_TFVARS }}
+
+      - name: Terraform plan
+        id: plan
+        run: |
+          set +e
+          terraform plan -input=false -no-color -lock-timeout=5m \
+            -detailed-exitcode -out=tfplan > plan.log 2>&1
+          code=$?
+          set -e
+          if [[ $code -eq 1 ]]; then
+            sed -n '/Error:/,$p' plan.log
+            exit 1
+          fi
+          echo "has_changes=$([[ $code -eq 2 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize plan
+        id: summary
+        run: |
+          bash .github/scripts/plan-summary.sh tfplan > changes.txt
+          echo "changes_sha=$(sha256sum changes.txt | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Terraform plan (${{ github.sha }})"
+            echo
+            if [[ "${{ steps.plan.outputs.has_changes }}" == "true" ]]; then
+              grep -E '^(Plan|Changes to Outputs):' plan.log || true
+              echo
+              echo '```'
+              cat changes.txt
+              echo '```'
+              echo
+              echo "승인하면 위 변경만 적용됩니다. 승인 시점에 내용이 달라지면 apply 하지 않습니다."
+            else
+              echo "No changes. 승인/적용할 것이 없습니다."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  apply:
+    name: Apply (production)
+    needs: plan
+    if: needs.plan.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # 승인자와 허용 브랜치(gyu)는 GitHub environment 설정에서 강제한다.
+    environment: production
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare Terraform
+        uses: ./.github/actions/terraform-setup
+        with:
+          role-arn: ${{ vars.TF_APPLY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          tfvars: ${{ secrets.TERRAFORM_TFVARS }}
+
+      - name: Terraform plan
+        run: |
+          set +e
+          terraform plan -input=false -no-color -lock-timeout=5m -out=tfplan > plan.log 2>&1
+          code=$?
+          set -e
+          if [[ $code -ne 0 ]]; then
+            sed -n '/Error:/,$p' plan.log
+            exit 1
+          fi
+
+      - name: Check plan matches the approved one
+        env:
+          APPROVED_SHA: ${{ needs.plan.outputs.changes_sha }}
+        run: |
+          bash .github/scripts/plan-summary.sh tfplan > changes.txt
+          actual="$(sha256sum changes.txt | cut -d' ' -f1)"
+          if [[ "$actual" != "$APPROVED_SHA" ]]; then
+            echo "승인 전 plan 과 변경 목록이 다릅니다. apply 하지 않습니다." >&2
+            echo "현재 변경 목록:" >&2
+            cat changes.txt >&2
+            exit 1
+          fi
+
+      # apply 출력에도 리소스 ID/값이 섞이므로 결과 줄과 오류만 찍는다.
+      - name: Terraform apply
+        run: |
+          set +e
+          terraform apply -input=false -no-color -lock-timeout=5m tfplan > apply.log 2>&1
+          code=$?
+          set -e
+          grep -E '^Apply complete!' apply.log || true
+          if [[ $code -ne 0 ]]; then
+            sed -n '/Error:/,$p' apply.log
+            exit 1
+          fi
+          {
+            echo "### Terraform apply (${{ github.sha }})"
+            echo
+            grep -E '^Apply complete!' apply.log || true
+          } >> "$GITHUB_STEP_SUMMARY"

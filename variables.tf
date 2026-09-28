@@ -151,6 +151,12 @@ variable "terraform_ci_repository" {
   default     = ""
 }
 
+variable "terraform_ci_branch" {
+  type        = string
+  description = "운영 기준 브랜치. 여기에 머지되면 terraform-apply.yml 이 돈다."
+  default     = "gyu"
+}
+
 # versions.tf 의 backend "s3" 설정과 같은 값이어야 한다(backend 블록은 변수를 못 씀).
 variable "terraform_state_bucket" {
   type        = string

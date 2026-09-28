@@ -6,6 +6,7 @@ variable "k3s_channel" { type = string }
 variable "github_repositories" { type = list(string) }
 variable "github_oidc_provider_arn" { type = string }
 variable "terraform_ci_repository" { type = string }
+variable "terraform_ci_branch" { type = string }
 variable "terraform_state_bucket" { type = string }
 variable "terraform_state_key" { type = string }
 
