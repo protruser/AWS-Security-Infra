@@ -1,7 +1,9 @@
 """Security Hub finding(ASFF) -> security_events 행 변환. (Lambda A)"""
 import hashlib
 import json
+import os
 import re
+import urllib.request
 
 from .scenarios import SCENARIOS
 
@@ -71,6 +73,71 @@ def classify(f):
     return "generic"
 
 
+_LONG_HEX = re.compile(r"^[0-9a-f]{20,}$", re.I)
+
+# ECR 저장소 이름(마지막 경로 조각) -> 이미지를 빌드하는 GitHub 레포. 이 프로젝트는
+# 이미지 태그로 git 커밋 SHA를 쓰므로, 태그가 곧 그 레포의 커밋을 가리킨다.
+_GITHUB_REPO_BY_ECR_NAME = {
+    "dashboard": "protruser/AWS-security",
+    "shop-app": "protruser/AWS-Security-Service",
+    "nginx": "protruser/AWS-Security-Service",
+}
+_commit_subject_cache = {}
+
+
+def _commit_subject(github_repo, sha):
+    """커밋 제목 한 줄(예: "flood 시나리오 추가"). 실패(네트워크·rate limit·404 등)
+    하면 조용히 None을 반환한다 - 이 조회 하나 때문에 탐지 이벤트 저장 자체가
+    막히면 안 되므로 타임아웃을 짧게 두고 예외를 전부 삼킨다. 같은 (레포, SHA)는
+    이 Lambda 실행 환경이 살아있는 동안(웜 스타트) 캐시해서 재호출하지 않는다."""
+    cache_key = (github_repo, sha)
+    if cache_key in _commit_subject_cache:
+        return _commit_subject_cache[cache_key]
+    subject = None
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{github_repo}/commits/{sha}",
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "wonny-sec-lambda-a"},
+        )
+        token = os.environ.get("GITHUB_TOKEN", "").strip()
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        with urllib.request.urlopen(req, timeout=3) as response:
+            # 커밋 API 응답은 변경 파일이 많으면 수백 KB까지도 간다. 앞부분만
+            # 읽으면 JSON이 중간에 잘려서 파싱 자체가 실패한다(실제로 겪은 버그).
+            data = json.loads(response.read(2_000_000))
+        message = ((data.get("commit") or {}).get("message") or "").strip()
+        subject = message.splitlines()[0][:120] if message else None
+    except Exception:
+        subject = None
+    _commit_subject_cache[cache_key] = subject
+    return subject
+
+
+def _asset_label(resource):
+    """사람이 읽을 수 있는 자산 이름. ECR 컨테이너 이미지는 Id 끝이 항상
+    '.../sha256:<64자리 해시>'라서 기존처럼 Id의 마지막 경로만 쓰면 해시만 남는다.
+    이 프로젝트는 이미지 태그로도 git 커밋 SHA(40자리)를 쓰기 때문에, 태그를
+    그대로 붙여도 여전히 알아볼 수 없다. 대신 그 커밋의 제목을 가져와서 보여준다
+    (예: "AwsEcrContainerImage wonny-sec/dashboard (flood 시나리오 추가)").
+    커밋 조회가 안 되면 'latest' 같은 읽을 수 있는 태그 -> 저장소 이름 순으로
+    물러난다."""
+    kind = resource.get("Type") or ""
+    if kind == "AwsEcrContainerImage":
+        details = ((resource.get("Details") or {}).get("AwsEcrContainerImage")) or {}
+        repo = details.get("RepositoryName")
+        if repo:
+            tags = details.get("ImageTags") or []
+            sha_tag = next((t for t in tags if t and _LONG_HEX.match(t)), None)
+            github_repo = _GITHUB_REPO_BY_ECR_NAME.get(repo.split("/")[-1])
+            subject = _commit_subject(github_repo, sha_tag) if github_repo and sha_tag else None
+            if subject:
+                return f"{kind} {repo} ({subject})"
+            readable_tag = next((t for t in tags if t and not _LONG_HEX.match(t)), None)
+            return f"{kind} {repo}:{readable_tag}" if readable_tag else f"{kind} {repo}"
+    return ((kind + " " + (resource.get("Id") or "").split("/")[-1]).strip()) or None
+
+
 def finding_to_event(f):
     """저장할 필요가 없는 finding 이면 None."""
     if (f.get("Compliance") or {}).get("Status") == "PASSED":
@@ -93,7 +160,7 @@ def finding_to_event(f):
         "scenario_type": kind,
         "severity": severity,
         "title": (f.get("Title") or sc["title"])[:255],
-        "asset": ((resource.get("Type") or "") + " " + (resource.get("Id") or "").split("/")[-1]).strip()[:255] or None,
+        "asset": (_asset_label(resource) or "")[:255] or None,
         "detected_at": _ts(f.get("UpdatedAt") or f.get("CreatedAt")),
         "status": "승인 대기" if auto else "검토 필요",
         # 역할 키 탈취(IAM 사용자 없음)는 Access Key 비활성화가 불가능하므로 역할 세션 폐기를 권고한다.

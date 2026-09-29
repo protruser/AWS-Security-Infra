@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path[:0] = [
@@ -92,6 +93,88 @@ class MappingTest(unittest.TestCase):
         ec2 = mapping.finding_to_event(finding("Inspector", "x", "AwsEc2Instance"))
         self.assertEqual(ecr["scenario_type"], "vuln")
         self.assertEqual(ec2["scenario_type"], "generic")
+
+    def test_ecr_asset_shows_repo_and_tag_not_digest_hash(self):
+        """ECR 리소스 Id는 항상 .../sha256:<해시>로 끝나서, 예전처럼 Id의 마지막
+        경로만 쓰면 사람이 못 알아보는 해시만 남는다. Details에 저장소/태그가
+        있으면 그걸 써야 한다."""
+        f = finding("Inspector", "x", "AwsEcrContainerImage", Resources=[{
+            "Type": "AwsEcrContainerImage",
+            "Id": "arn:aws:ecr:ap-northeast-2:1:repository/wonny-sec-nginx/sha256:"
+                  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "Details": {"AwsEcrContainerImage": {
+                "RepositoryName": "wonny-sec-nginx",
+                "ImageTags": ["latest"],
+                "ImageDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            }},
+        }])
+        event = mapping.finding_to_event(f)
+        self.assertEqual(event["asset"], "AwsEcrContainerImage wonny-sec-nginx:latest")
+        self.assertNotIn("aaaaaaaa", event["asset"])
+
+    def test_ecr_asset_falls_back_to_repo_name_without_any_tag(self):
+        """태그가 없는 이미지(다이제스트로만 스캔된 경우)는 커밋 조회를 시도할 SHA
+        자체가 없으니 저장소 이름만 보여준다 - 해시를 아예 노출하지 않는다."""
+        f = finding("Inspector", "x", "AwsEcrContainerImage", Resources=[{
+            "Type": "AwsEcrContainerImage",
+            "Id": "arn:aws:ecr:ap-northeast-2:1:repository/wonny-sec-shop-app/sha256:"
+                  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "Details": {"AwsEcrContainerImage": {
+                "RepositoryName": "wonny-sec-shop-app",
+                "ImageDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            }},
+        }])
+        event = mapping.finding_to_event(f)
+        self.assertEqual(event["asset"], "AwsEcrContainerImage wonny-sec-shop-app")
+        self.assertNotIn("bbbbbbbb", event["asset"])
+
+    def test_ecr_asset_shows_commit_subject_when_repo_and_sha_tag_known(self):
+        """실제 저장소 이름 형식(wonny-sec/dashboard)과 git SHA 태그가 있으면
+        GitHub에서 그 커밋의 제목을 가져와 보여준다 - 이게 이번에 추가한 핵심 동작."""
+        f = finding("Inspector", "x", "AwsEcrContainerImage", Resources=[{
+            "Type": "AwsEcrContainerImage",
+            "Id": "arn:aws:ecr:ap-northeast-2:1:repository/wonny-sec/dashboard/sha256:"
+                  "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "Details": {"AwsEcrContainerImage": {
+                "RepositoryName": "wonny-sec/dashboard",
+                "ImageTags": ["7900353d726054f26b3156dda8901feb65fc1064"],
+                "ImageDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            }},
+        }])
+        with patch.object(mapping, "_commit_subject", return_value="flood 시나리오 추가"):
+            event = mapping.finding_to_event(f)
+        self.assertEqual(event["asset"], "AwsEcrContainerImage wonny-sec/dashboard (flood 시나리오 추가)")
+
+    def test_ecr_asset_falls_back_to_repo_name_when_commit_lookup_fails(self):
+        """GitHub 조회가 실패해도(네트워크 문제, rate limit, 매핑에 없는 저장소 등)
+        해시를 그대로 노출하지 않고 저장소 이름으로 안전하게 물러난다."""
+        f = finding("Inspector", "x", "AwsEcrContainerImage", Resources=[{
+            "Type": "AwsEcrContainerImage",
+            "Id": "arn:aws:ecr:ap-northeast-2:1:repository/wonny-sec/dashboard/sha256:"
+                  "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "Details": {"AwsEcrContainerImage": {
+                "RepositoryName": "wonny-sec/dashboard",
+                "ImageTags": ["7900353d726054f26b3156dda8901feb65fc1064"],
+            }},
+        }])
+        with patch.object(mapping, "_commit_subject", return_value=None):
+            event = mapping.finding_to_event(f)
+        self.assertEqual(event["asset"], "AwsEcrContainerImage wonny-sec/dashboard")
+        self.assertNotIn("7900353d", event["asset"])
+
+    def test_ecr_asset_keeps_short_named_tags_as_is(self):
+        """'latest'처럼 원래 짧은 태그는 이미 사람이 읽을 수 있으니 자르지 않는다."""
+        f = finding("Inspector", "x", "AwsEcrContainerImage", Resources=[{
+            "Type": "AwsEcrContainerImage",
+            "Id": "arn:aws:ecr:ap-northeast-2:1:repository/wonny-sec-nginx/sha256:"
+                  "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "Details": {"AwsEcrContainerImage": {
+                "RepositoryName": "wonny-sec-nginx",
+                "ImageTags": ["v1.2.3"],
+            }},
+        }])
+        event = mapping.finding_to_event(f)
+        self.assertEqual(event["asset"], "AwsEcrContainerImage wonny-sec-nginx:v1.2.3")
 
     def test_seven_scenarios_filter_matches_project_list(self):
         """대시보드가 최종적으로 필터링할 7개 값과 우리가 실제로 만드는 값이 어긋나지 않는지 확인."""

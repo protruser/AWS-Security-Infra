@@ -15,5 +15,5 @@ find build -name '__pycache__' -type d -prune -exec rm -rf {} +
 rm -rf build/bin
 rm -f build/*.dist-info/RECORD
 # Windows 체크아웃(CRLF)과 CI(LF)에서 zip 이 달라지지 않게 직접 작성한 코드는 LF 로 맞춘다.
-sed -i 's/\r$//' build/*.py build/common/*.py
+perl -pi -e 's/\r$//' build/*.py build/common/*.py
 echo "built: $(pwd)/build"
