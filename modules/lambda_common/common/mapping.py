@@ -1,7 +1,9 @@
 """Security Hub finding(ASFF) -> security_events 행 변환. (Lambda A)"""
 import hashlib
 import json
+import os
 import re
+import urllib.request
 
 from .scenarios import SCENARIOS
 
@@ -71,21 +73,66 @@ def classify(f):
     return "generic"
 
 
+_LONG_HEX = re.compile(r"^[0-9a-f]{20,}$", re.I)
+
+# ECR 저장소 이름(마지막 경로 조각) -> 이미지를 빌드하는 GitHub 레포. 이 프로젝트는
+# 이미지 태그로 git 커밋 SHA를 쓰므로, 태그가 곧 그 레포의 커밋을 가리킨다.
+_GITHUB_REPO_BY_ECR_NAME = {
+    "dashboard": "protruser/AWS-security",
+    "shop-app": "protruser/AWS-Security-Service",
+    "nginx": "protruser/AWS-Security-Service",
+}
+_commit_subject_cache = {}
+
+
+def _commit_subject(github_repo, sha):
+    """커밋 제목 한 줄(예: "flood 시나리오 추가"). 실패(네트워크·rate limit·404 등)
+    하면 조용히 None을 반환한다 - 이 조회 하나 때문에 탐지 이벤트 저장 자체가
+    막히면 안 되므로 타임아웃을 짧게 두고 예외를 전부 삼킨다. 같은 (레포, SHA)는
+    이 Lambda 실행 환경이 살아있는 동안(웜 스타트) 캐시해서 재호출하지 않는다."""
+    cache_key = (github_repo, sha)
+    if cache_key in _commit_subject_cache:
+        return _commit_subject_cache[cache_key]
+    subject = None
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{github_repo}/commits/{sha}",
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "wonny-sec-lambda-a"},
+        )
+        token = os.environ.get("GITHUB_TOKEN", "").strip()
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        with urllib.request.urlopen(req, timeout=3) as response:
+            data = json.loads(response.read(50_000))
+        message = ((data.get("commit") or {}).get("message") or "").strip()
+        subject = message.splitlines()[0][:120] if message else None
+    except Exception:
+        subject = None
+    _commit_subject_cache[cache_key] = subject
+    return subject
+
+
 def _asset_label(resource):
     """사람이 읽을 수 있는 자산 이름. ECR 컨테이너 이미지는 Id 끝이 항상
     '.../sha256:<64자리 해시>'라서 기존처럼 Id의 마지막 경로만 쓰면 해시만 남는다.
-    Details에 저장소 이름·태그가 따로 있으면 그걸 우선 쓴다."""
+    이 프로젝트는 이미지 태그로도 git 커밋 SHA(40자리)를 쓰기 때문에, 태그를
+    그대로 붙여도 여전히 알아볼 수 없다. 대신 그 커밋의 제목을 가져와서 보여준다
+    (예: "AwsEcrContainerImage wonny-sec/dashboard (flood 시나리오 추가)").
+    커밋 조회가 안 되면 'latest' 같은 읽을 수 있는 태그 -> 저장소 이름 순으로
+    물러난다."""
     kind = resource.get("Type") or ""
     if kind == "AwsEcrContainerImage":
         details = ((resource.get("Details") or {}).get("AwsEcrContainerImage")) or {}
         repo = details.get("RepositoryName")
         if repo:
             tags = details.get("ImageTags") or []
-            tag = tags[0] if tags else None
-            digest = details.get("ImageDigest") or ""
-            short_digest = digest.split(":")[-1][:12] if digest else None
-            suffix = tag or short_digest
-            return f"{kind} {repo}:{suffix}" if suffix else f"{kind} {repo}"
+            sha_tag = next((t for t in tags if t and _LONG_HEX.match(t)), None)
+            github_repo = _GITHUB_REPO_BY_ECR_NAME.get(repo.split("/")[-1])
+            subject = _commit_subject(github_repo, sha_tag) if github_repo and sha_tag else None
+            if subject:
+                return f"{kind} {repo} ({subject})"
+            readable_tag = next((t for t in tags if t and not _LONG_HEX.match(t)), None)
+            return f"{kind} {repo}:{readable_tag}" if readable_tag else f"{kind} {repo}"
     return ((kind + " " + (resource.get("Id") or "").split("/")[-1]).strip()) or None
 
 
