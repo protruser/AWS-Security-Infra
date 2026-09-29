@@ -71,6 +71,24 @@ def classify(f):
     return "generic"
 
 
+def _asset_label(resource):
+    """사람이 읽을 수 있는 자산 이름. ECR 컨테이너 이미지는 Id 끝이 항상
+    '.../sha256:<64자리 해시>'라서 기존처럼 Id의 마지막 경로만 쓰면 해시만 남는다.
+    Details에 저장소 이름·태그가 따로 있으면 그걸 우선 쓴다."""
+    kind = resource.get("Type") or ""
+    if kind == "AwsEcrContainerImage":
+        details = ((resource.get("Details") or {}).get("AwsEcrContainerImage")) or {}
+        repo = details.get("RepositoryName")
+        if repo:
+            tags = details.get("ImageTags") or []
+            tag = tags[0] if tags else None
+            digest = details.get("ImageDigest") or ""
+            short_digest = digest.split(":")[-1][:12] if digest else None
+            suffix = tag or short_digest
+            return f"{kind} {repo}:{suffix}" if suffix else f"{kind} {repo}"
+    return ((kind + " " + (resource.get("Id") or "").split("/")[-1]).strip()) or None
+
+
 def finding_to_event(f):
     """저장할 필요가 없는 finding 이면 None."""
     if (f.get("Compliance") or {}).get("Status") == "PASSED":
@@ -93,7 +111,7 @@ def finding_to_event(f):
         "scenario_type": kind,
         "severity": severity,
         "title": (f.get("Title") or sc["title"])[:255],
-        "asset": ((resource.get("Type") or "") + " " + (resource.get("Id") or "").split("/")[-1]).strip()[:255] or None,
+        "asset": (_asset_label(resource) or "")[:255] or None,
         "detected_at": _ts(f.get("UpdatedAt") or f.get("CreatedAt")),
         "status": "승인 대기" if auto else "검토 필요",
         # 역할 키 탈취(IAM 사용자 없음)는 Access Key 비활성화가 불가능하므로 역할 세션 폐기를 권고한다.

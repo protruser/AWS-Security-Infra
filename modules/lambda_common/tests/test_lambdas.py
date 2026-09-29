@@ -93,6 +93,39 @@ class MappingTest(unittest.TestCase):
         self.assertEqual(ecr["scenario_type"], "vuln")
         self.assertEqual(ec2["scenario_type"], "generic")
 
+    def test_ecr_asset_shows_repo_and_tag_not_digest_hash(self):
+        """ECR 리소스 Id는 항상 .../sha256:<해시>로 끝나서, 예전처럼 Id의 마지막
+        경로만 쓰면 사람이 못 알아보는 해시만 남는다. Details에 저장소/태그가
+        있으면 그걸 써야 한다."""
+        f = finding("Inspector", "x", "AwsEcrContainerImage", Resources=[{
+            "Type": "AwsEcrContainerImage",
+            "Id": "arn:aws:ecr:ap-northeast-2:1:repository/wonny-sec-nginx/sha256:"
+                  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "Details": {"AwsEcrContainerImage": {
+                "RepositoryName": "wonny-sec-nginx",
+                "ImageTags": ["latest"],
+                "ImageDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            }},
+        }])
+        event = mapping.finding_to_event(f)
+        self.assertEqual(event["asset"], "AwsEcrContainerImage wonny-sec-nginx:latest")
+        self.assertNotIn("aaaaaaaa", event["asset"])
+
+    def test_ecr_asset_falls_back_to_short_digest_without_tag(self):
+        """태그가 없는 이미지(다이제스트로만 스캔된 경우)는 해시를 12자로 줄여서라도
+        보여준다 - 저장소 이름 없이 통째로 다시 해시만 나오는 것보다는 낫다."""
+        f = finding("Inspector", "x", "AwsEcrContainerImage", Resources=[{
+            "Type": "AwsEcrContainerImage",
+            "Id": "arn:aws:ecr:ap-northeast-2:1:repository/wonny-sec-shop-app/sha256:"
+                  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "Details": {"AwsEcrContainerImage": {
+                "RepositoryName": "wonny-sec-shop-app",
+                "ImageDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            }},
+        }])
+        event = mapping.finding_to_event(f)
+        self.assertEqual(event["asset"], "AwsEcrContainerImage wonny-sec-shop-app:bbbbbbbbbbbb")
+
     def test_seven_scenarios_filter_matches_project_list(self):
         """대시보드가 최종적으로 필터링할 7개 값과 우리가 실제로 만드는 값이 어긋나지 않는지 확인."""
         SEVEN = {"sqli", "dir", "brute", "cred", "vuln", "xss", "port"}
