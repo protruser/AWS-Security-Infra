@@ -103,7 +103,9 @@ def _commit_subject(github_repo, sha):
         if token:
             req.add_header("Authorization", f"Bearer {token}")
         with urllib.request.urlopen(req, timeout=3) as response:
-            data = json.loads(response.read(50_000))
+            # 커밋 API 응답은 변경 파일이 많으면 수백 KB까지도 간다. 앞부분만
+            # 읽으면 JSON이 중간에 잘려서 파싱 자체가 실패한다(실제로 겪은 버그).
+            data = json.loads(response.read(2_000_000))
         message = ((data.get("commit") or {}).get("message") or "").strip()
         subject = message.splitlines()[0][:120] if message else None
     except Exception:
