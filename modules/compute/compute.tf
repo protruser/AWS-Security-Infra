@@ -16,6 +16,9 @@ locals {
 # depends_on: 서버가 켜질 때 SSM/ECR 권한이 이미 붙어 있도록 순서를 강제한다.
 # user_data_replace_on_change: user_data 는 첫 부팅에만 실행되므로 바뀌면 서버를 교체한다.
 #   (DB 서버는 데이터가 쌓이기 시작하면 이 옵션을 끄거나 ignore_changes 로 바꿔야 한다.)
+# ignore_changes 의 ami: AMI 는 SSM 의 "최신 AL2023" 값을 따르는데, AWS 가 이 값을 몇 주마다
+#   새 버전으로 바꾼다. 그대로 두면 그때마다 plan 이 5대 서버 교체를 요구하므로, 이미 떠 있는
+#   서버의 AMI 는 무시한다. (새로 만드는 서버는 그 시점의 최신 AMI 를 쓴다. OS 패치는 dnf/SSM 으로.)
 
 resource "aws_instance" "k3s" {
   ami                    = data.aws_ssm_parameter.al2023_ami.value
@@ -61,7 +64,7 @@ resource "aws_instance" "k3s" {
   # 번거로우니(nginx 안에서 kubectl로 이미 살아있는 배포임), user_data가 바뀌어도
   # 이 서버는 재생성하지 않는다.
   lifecycle {
-    ignore_changes = [user_data]
+    ignore_changes = [ami, user_data]
   }
 }
 
@@ -113,7 +116,7 @@ resource "aws_instance" "dashboard" {
   # 이게 없으면 apply 할 때마다 이 서버가 교체되면서 실제 배포한 대시보드가
   # 자리표시자로 초기화된다.
   lifecycle {
-    ignore_changes = [user_data]
+    ignore_changes = [ami, user_data]
   }
 }
 
@@ -162,7 +165,7 @@ resource "aws_instance" "shop_app" {
   # 이제 GitHub Actions가 실제 쇼핑몰 컨테이너를 이 서버에 배포하고 있어서,
   # user_data가 바뀌어도 이 서버는 재생성하지 않는다 (다른 EC2들과 동일).
   lifecycle {
-    ignore_changes = [user_data]
+    ignore_changes = [ami, user_data]
   }
 }
 
@@ -209,7 +212,7 @@ resource "aws_instance" "shop_db" {
   # 데이터가 쌓이는 DB 서버는 user_data(설치 스크립트)가 바뀌어도 재생성하지 않는다.
   # (템플릿은 계속 최신으로 유지하되, 이미 떠 있는 서버는 건드리지 않는다. 새 항목은 SSM으로 수동 적용.)
   lifecycle {
-    ignore_changes = [user_data]
+    ignore_changes = [ami, user_data]
   }
 }
 
@@ -254,6 +257,6 @@ resource "aws_instance" "security_db" {
 
   # 이미 탐지 데이터가 쌓이고 있는 서버라서, user_data가 바뀌어도 재생성하지 않는다.
   lifecycle {
-    ignore_changes = [user_data]
+    ignore_changes = [ami, user_data]
   }
 }
