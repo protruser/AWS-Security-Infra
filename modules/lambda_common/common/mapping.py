@@ -19,8 +19,12 @@ CRED_HINTS = ("UnauthorizedAccess:IAMUser", "CredentialAccess", "InstanceCredent
               "Persistence:IAMUser", "PrivilegeEscalation:IAMUser", "Stealth:IAMUser",
               # 실제로 관측된 root 자격증명 사용, 침투테스트 도구의 IAM 자격증명
               # 사용도 자격증명 오남용이라 "cred"로 분류돼야 하는데 기존 목록에
-              # 없어서 계속 generic으로 빠졌다.
-              "Policy:IAMUser/RootCredentialUsage", "PenTest:IAMUser")
+              # 없어서 계속 generic으로 빠졌다. GuardDuty 자체 API는
+              # "Policy:IAMUser/RootCredentialUsage"(슬래시)로 주지만, Security
+              # Hub로 들어오면 "TTPs/Policy:IAMUser-RootCredentialUsage"처럼
+              # 구분자가 하이픈으로 바뀌고 앞에 TTPs/가 붙는다 - 실제 Security
+              # Hub finding으로 확인한 값. 구분자에 안 흔들리게 핵심 단어만 쓴다.
+              "RootCredentialUsage", "PenTest:IAMUser")
 IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 
 

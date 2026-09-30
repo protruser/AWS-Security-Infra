@@ -232,11 +232,14 @@ class MappingTest(unittest.TestCase):
         self.assertNotEqual(a["id"], b["id"])
 
     def test_cred_hints_catch_root_and_pentest_iam_usage(self):
-        """Policy:IAMUser/RootCredentialUsage, PenTest:IAMUser/* 도 자격증명
+        """Root 자격증명 사용, 침투테스트 도구의 IAM 자격증명 사용도 자격증명
         오남용이라 cred로 분류돼야 한다 - 실제 계정에서 관측된 GuardDuty
-        finding type인데 예전 CRED_HINTS엔 없어서 generic으로 빠졌었다."""
-        root = mapping.finding_to_event(finding("GuardDuty", "Policy:IAMUser/RootCredentialUsage"))
-        pentest = mapping.finding_to_event(finding("GuardDuty", "PenTest:IAMUser/KaliLinux"))
+        finding type인데 예전 CRED_HINTS엔 없어서 generic으로 빠졌었다.
+        타입 문자열은 실제 Security Hub finding에서 확인한 형식을 그대로
+        쓴다(GuardDuty 자체 API가 주는 "Policy:IAMUser/RootCredentialUsage"와
+        구분자가 다르다 - 슬래시가 아니라 하이픈, TTPs/ 접두사 붙음)."""
+        root = mapping.finding_to_event(finding("GuardDuty", "TTPs/Policy:IAMUser-RootCredentialUsage"))
+        pentest = mapping.finding_to_event(finding("GuardDuty", "TTPs/PenTest:IAMUser/KaliLinux"))
         self.assertEqual(root["scenario_type"], "cred")
         self.assertEqual(pentest["scenario_type"], "cred")
 
