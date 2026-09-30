@@ -199,6 +199,47 @@ class MappingTest(unittest.TestCase):
         self.assertEqual(mapping.finding_to_event(f)["id"], mapping.finding_to_event(f)["id"])
         self.assertLess(len(mapping.finding_to_event(f)["id"]), 255)
 
+    def test_vuln_id_is_stable_across_image_rebuilds(self):
+        """이미지를 새로 빌드(push)할 때마다 원본 finding Id는 이미지
+        다이제스트를 포함해 달라진다 - 안 고친 채면 같은 CVE가 push할
+        때마다 새 이벤트로 계속 쌓였다. 레포+CVE+패키지가 같으면 같은
+        이벤트 id로 묶여야 한다."""
+        def build(digest_suffix):
+            return finding(
+                "Inspector", "x", "AwsEcrContainerImage",
+                Id=f"arn:aws:inspector2:r:1:finding/{digest_suffix}",
+                Vulnerabilities=[{"Id": "CVE-2026-61081", "VulnerablePackages": [{"Name": "mariadb-libs"}]}],
+                Resources=[{"Type": "AwsEcrContainerImage", "Id": "x", "Details": {"AwsEcrContainerImage": {
+                    "RepositoryName": "wonny-sec/dashboard", "ImageDigest": f"sha256:{digest_suffix}"}}}],
+            )
+        first_build = mapping.finding_to_event(build("aaa111"))
+        second_build = mapping.finding_to_event(build("bbb222"))
+        self.assertEqual(first_build["scenario_type"], "vuln")
+        self.assertEqual(first_build["id"], second_build["id"])
+
+    def test_vuln_id_differs_for_different_cve(self):
+        """다른 CVE는 당연히 서로 다른 이벤트로 남아야 한다."""
+        def build(cve):
+            return finding(
+                "Inspector", "x", "AwsEcrContainerImage",
+                Id=f"arn:aws:inspector2:r:1:finding/{cve}",
+                Vulnerabilities=[{"Id": cve, "VulnerablePackages": [{"Name": "mariadb-libs"}]}],
+                Resources=[{"Type": "AwsEcrContainerImage", "Id": "x", "Details": {"AwsEcrContainerImage": {
+                    "RepositoryName": "wonny-sec/dashboard"}}}],
+            )
+        a = mapping.finding_to_event(build("CVE-2026-00001"))
+        b = mapping.finding_to_event(build("CVE-2026-00002"))
+        self.assertNotEqual(a["id"], b["id"])
+
+    def test_cred_hints_catch_root_and_pentest_iam_usage(self):
+        """Policy:IAMUser/RootCredentialUsage, PenTest:IAMUser/* 도 자격증명
+        오남용이라 cred로 분류돼야 한다 - 실제 계정에서 관측된 GuardDuty
+        finding type인데 예전 CRED_HINTS엔 없어서 generic으로 빠졌었다."""
+        root = mapping.finding_to_event(finding("GuardDuty", "Policy:IAMUser/RootCredentialUsage"))
+        pentest = mapping.finding_to_event(finding("GuardDuty", "PenTest:IAMUser/KaliLinux"))
+        self.assertEqual(root["scenario_type"], "cred")
+        self.assertEqual(pentest["scenario_type"], "cred")
+
 
 class WafTest(unittest.TestCase):
     def kinds(self, records, source="shop"):
