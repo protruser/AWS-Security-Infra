@@ -16,7 +16,11 @@ SEVERITY = {
 }
 
 CRED_HINTS = ("UnauthorizedAccess:IAMUser", "CredentialAccess", "InstanceCredentialExfiltration",
-              "Persistence:IAMUser", "PrivilegeEscalation:IAMUser", "Stealth:IAMUser")
+              "Persistence:IAMUser", "PrivilegeEscalation:IAMUser", "Stealth:IAMUser",
+              # 실제로 관측된 root 자격증명 사용, 침투테스트 도구의 IAM 자격증명
+              # 사용도 자격증명 오남용이라 "cred"로 분류돼야 하는데 기존 목록에
+              # 없어서 계속 generic으로 빠졌다.
+              "Policy:IAMUser/RootCredentialUsage", "PenTest:IAMUser")
 IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 
 
@@ -138,6 +142,37 @@ def _asset_label(resource):
     return ((kind + " " + (resource.get("Id") or "").split("/")[-1]).strip()) or None
 
 
+def _event_id(f, kind, resource):
+    """컨테이너 이미지 취약점(vuln)은 원본 finding Id에 이미지 다이제스트가
+    포함돼 있어서, 같은 CVE라도 이미지를 새로 빌드(=push)할 때마다 다른
+    finding Id를 받는다. 그 결과 아직 안 고친 같은 취약점이 push할 때마다
+    "새 이벤트"로 계속 쌓였다 - 레포+CVE+패키지 기준으로 안정적인 id를
+    만들어서, 같은 취약점이 재스캔돼도 기존 이벤트가 갱신되게 한다
+    (status는 upsert 시 일부러 안 덮어써서 이미 예외 처리/조치 완료된
+    건 다시 안 열린다 - db.py의 UPSERT_EVENT 참고).
+    다른 시나리오(port/cred 등)는 기존처럼 원본 finding Id를 그대로 쓴다."""
+    if kind != "vuln":
+        return "sh-" + hashlib.sha1(f["Id"].encode()).hexdigest()[:32]
+
+    details = ((resource.get("Details") or {}).get("AwsEcrContainerImage")) or {}
+    repo = details.get("RepositoryName") or ""
+    vulns = f.get("Vulnerabilities") or []
+    cve = (vulns[0].get("Id") if vulns else None) or ""
+    if not cve:
+        match = re.search(r"CVE-\d{4}-\d{4,}", f.get("Title") or "", re.I)
+        cve = match.group(0).upper() if match else ""
+    package = ""
+    if vulns:
+        pkgs = vulns[0].get("VulnerablePackages") or []
+        if pkgs:
+            package = pkgs[0].get("Name") or ""
+    if not (repo and cve):
+        # 레포·CVE를 못 찾으면 안정적인 키를 만들 수 없으니 기존 방식으로 물러난다.
+        return "sh-" + hashlib.sha1(f["Id"].encode()).hexdigest()[:32]
+    key = f"vuln|{repo}|{cve}|{package}"
+    return "sh-" + hashlib.sha1(key.encode()).hexdigest()[:32]
+
+
 def finding_to_event(f):
     """저장할 필요가 없는 finding 이면 None."""
     if (f.get("Compliance") or {}).get("Status") == "PASSED":
@@ -155,7 +190,7 @@ def finding_to_event(f):
     auto = (kind == "port" and ip is not None) or (kind == "cred" and user is not None)
 
     return {
-        "id": "sh-" + hashlib.sha1(f["Id"].encode()).hexdigest()[:32],
+        "id": _event_id(f, kind, resource),
         "service": f.get("ProductName") or "Security Hub",
         "scenario_type": kind,
         "severity": severity,
