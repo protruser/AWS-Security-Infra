@@ -96,6 +96,21 @@ data "aws_iam_policy_document" "dashboard_aws_read" {
       "${var.security_logs_bucket_arn}/*"
     ]
   }
+
+  # AI Terraform 패치 파이프라인이 현재 인프라 상태를 읽을 수 있게 tfstate
+  # 읽기 권한을 준다(쓰기는 CI의 terraform_plan/apply 역할만 가능 - 여긴
+  # 읽기 전용).
+  statement {
+    sid       = "TerraformStateBucketList"
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::${var.terraform_state_bucket}"]
+  }
+
+  statement {
+    sid       = "TerraformStateRead"
+    actions   = ["s3:GetObject"]
+    resources = ["arn:aws:s3:::${var.terraform_state_bucket}/${var.terraform_state_key}"]
+  }
 }
 
 resource "aws_iam_role_policy" "dashboard_aws_read" {
