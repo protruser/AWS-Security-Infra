@@ -46,7 +46,7 @@ resource "aws_iam_role_policy" "secret" {
 
 resource "aws_cloudwatch_log_group" "this" {
   name              = "/aws/lambda/${var.project}-lambda-c"
-  retention_in_days = 30
+  retention_in_days = 365
 }
 
 # CloudWatch 지표 조회 전용 (조회만, PutMetricData 는 서버의 CloudWatch Agent 몫이라 여기엔 없다)
