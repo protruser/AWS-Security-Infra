@@ -45,7 +45,7 @@ resource "aws_iam_role_policy" "secret" {
 
 resource "aws_cloudwatch_log_group" "this" {
   name              = "/aws/lambda/${var.project}-remediation"
-  retention_in_days = 365
+  retention_in_days = 30
 }
 
 data "aws_region" "current" {}

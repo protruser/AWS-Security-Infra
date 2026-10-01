@@ -1,6 +1,6 @@
 resource "aws_cloudwatch_log_group" "vpc_flow" {
   name              = "/${var.project}/vpc-flow"
-  retention_in_days = 365
+  retention_in_days = 30
   kms_key_id        = aws_kms_key.security.arn
 }
 

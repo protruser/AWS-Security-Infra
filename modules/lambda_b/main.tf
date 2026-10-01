@@ -45,7 +45,7 @@ resource "aws_iam_role_policy" "secret" {
 
 resource "aws_cloudwatch_log_group" "this" {
   name              = "/aws/lambda/${var.project}-lambda-b"
-  retention_in_days = 365
+  retention_in_days = 30
 }
 
 # WAF 로그 그룹 읽기 전용

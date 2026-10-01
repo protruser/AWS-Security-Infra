@@ -54,7 +54,7 @@ resource "aws_iam_role_policy" "lambda_a_secret" {
 
 resource "aws_cloudwatch_log_group" "lambda_a" {
   name              = "/aws/lambda/${var.project}-lambda-a"
-  retention_in_days = 365
+  retention_in_days = 30
 }
 
 resource "aws_lambda_function" "lambda_a" {
