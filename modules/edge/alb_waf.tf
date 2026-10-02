@@ -1,9 +1,11 @@
 resource "aws_lb" "shop" {
-  name               = "${var.project}-shop-alb"
-  load_balancer_type = "application"
-  internal           = false
-  security_groups    = [var.security_group_ids["shop_alb"]]
-  subnets            = values(var.public_subnet_ids)
+  name                       = "${var.project}-shop-alb"
+  load_balancer_type         = "application"
+  internal                   = false
+  security_groups            = [var.security_group_ids["shop_alb"]]
+  subnets                    = values(var.public_subnet_ids)
+  enable_deletion_protection = true
+  drop_invalid_header_fields = true
 
   tags = {
     Name = "${var.project}-shop-alb"
@@ -11,11 +13,13 @@ resource "aws_lb" "shop" {
 }
 
 resource "aws_lb" "admin" {
-  name               = "${var.project}-admin-alb"
-  load_balancer_type = "application"
-  internal           = false
-  security_groups    = [var.security_group_ids["admin_alb"]]
-  subnets            = values(var.public_subnet_ids)
+  name                       = "${var.project}-admin-alb"
+  load_balancer_type         = "application"
+  internal                   = false
+  security_groups            = [var.security_group_ids["admin_alb"]]
+  subnets                    = values(var.public_subnet_ids)
+  enable_deletion_protection = true
+  drop_invalid_header_fields = true
 
   tags = {
     Name = "${var.project}-admin-alb"
